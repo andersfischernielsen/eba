@@ -1,5 +1,6 @@
 open Batteries
 open Cil
+open Dolog
 
 (* TODO: We can also negate Le, Ge, Lt and Gt *)
 let negateExp = function
@@ -43,6 +44,13 @@ let arg_is_linux_lock e :bool =
 	| _ ->
 		false
 
+let arg_is_linux_free e :bool =
+	match unrollTypeDeep (typeOf e) with
+	| TPtr (TComp(ci,_),_)
+		(* when not (ci.cname = "" || ci.cname = "" || ci.cname = "") *)
+		-> Printf.printf "arg_is_linux_free has not been implemented for type: %s\n" (Cil.compFullName ci); false
+	| _ -> false
+
 let find_arg_in_call pick instrs : exp option =
 	List.Exceptionless.find_map pick instrs
 		|> Option.map Cil.stripCasts
@@ -50,6 +58,10 @@ let find_arg_in_call pick instrs : exp option =
 let find_linux_lock_in_call : instr list -> exp option =
 	let open Utils.Option in
 	find_arg_in_call (pick_arg_that arg_is_linux_lock <|> pick_first_arg)
+
+let find_linux_free_in_call : instr list -> exp option =
+	let open Utils.Option in
+	find_arg_in_call (pick_arg_that arg_is_linux_free <|> pick_first_arg)
 
 (* THINK: Some of the functions below would not be needed if our front-end, CIL,
  * would keep more information about loops; and if EBA would not rely on
