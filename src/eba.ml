@@ -49,6 +49,9 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckDUnlockFlow2Inverse.in_func;
 		if checks.chk_birq
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
+		(*
+		TODO: Add automata checkers here with corresponding in_func 
+		*)
 	)
 
 let infer_file checks fn =

@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug",
+            "type": "ocaml-debugger",
+            "request": "launch",
+            "program": "${workspaceRoot}/bin/eba.bc",
+            "arguments": ["--dunlock", "${workspaceRoot}/test/linux/file_78e03651.i"],
+            "stopOnEntry": false,
+            "debugServer": 4711
+        }
+    ]
+}
