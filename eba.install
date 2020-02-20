@@ -1,0 +1,13 @@
+lib: [
+  "_build/install/default/lib/eba/META"
+  "_build/install/default/lib/eba/dune-package"
+  "_build/install/default/lib/eba/opam"
+]
+bin: [
+  "_build/install/default/bin/eba"
+]
+doc: [
+  "_build/install/default/doc/eba/CHANGES.md"
+  "_build/install/default/doc/eba/LICENSE"
+  "_build/install/default/doc/eba/README.md"
+]

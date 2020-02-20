@@ -6,7 +6,10 @@
             "type": "ocaml-debugger",
             "request": "launch",
             "program": "${workspaceRoot}/bin/eba.bc",
-            "arguments": ["--dunlock", "${workspaceRoot}/test/linux/file_78e03651.i"],
+            "arguments": [
+                "--dUa",
+                "${workspaceRoot}/test/linux/orphan-reduced.i"
+            ],
             "stopOnEntry": false,
             "debugServer": 4711
         }
