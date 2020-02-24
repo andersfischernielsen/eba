@@ -8,6 +8,7 @@ open Type
 open Abs
 open PathTree
 open Format
+open Effects
 
 module CFGGeneration = struct
 	type eba_cfg_node =
@@ -98,7 +99,11 @@ module type AutomataSpec = sig
 	val name : string
 
 	(** Checker's internal state, eg. memory regions to track. *)
-	type st
+	type checker_state = {
+		fna  : AFun.t;
+		reg  : Region.t;
+		effects : effects;
+	}
 
 	(** States *)
 	type state
@@ -106,15 +111,15 @@ module type AutomataSpec = sig
 	val initial_state : state
 
 	(** Selects initial contexts *)
-	val select : AFile.t -> Cil.fundec -> shape scheme -> AFun.t -> st L.t
+	val select : AFun.t -> checker_state L.t
 	(** Flags steps of interest for triaging. *)
-	val trace : st -> Effects.t -> bool
+	val trace : checker_state -> Effects.t -> bool
 	(** Test *)
-	val transition : state -> st -> state
+	val transition : state -> Effects.e -> state
 
 	(** Bug data *)
 	type bug
-	val bug_of_st : st -> bug
+	val bug_of_st : checker_state -> bug
 	val doc_of_report : Cil.varinfo -> bug -> Cil.location -> path -> PP.doc
 end
 
@@ -132,11 +137,73 @@ module Make (A : AutomataSpec) : S = struct
 
 	let string_of_report r = A.doc_of_report r.func r.bug r.location [] |> PP.to_string
 
-	(* 
-	let same_loc (_,s1,_,_) (_,s2,_,_) = Cil.compareLoc s1.sloc s2.sloc = 0 
-	*)
+	let generate_report declaration state = 
+		{
+			func = Cil.(declaration.svar);
+			bug = A.bug_of_st state;
+			location = {line = 0; file = ""; byte = 0}; (* TODO: Implement getting locations. *)
+			trace = []; (* TODO: Implement getting traces. *)
+		}
 
-	(* 
+	type cfg_state = Entry
+	type cfg = {initial_state: A.state; transition: A.state -> Effects.e -> A.state}
+	
+	let rec explore_paths path previous_state = 
+		match path() with
+		| Seq(step, remaining) -> 
+			let result = (EffectSet.fold (fun effect previous -> A.transition previous effect) step.effs.must A.initial_state) in 
+			let tail = result |> explore_paths remaining in
+			let pp = A.state_to_string tail in
+			tail
+		| Assume(condition, flag, c) -> 
+			let explored = previous_state |> explore_paths c in 
+			let pp = A.state_to_string explored in 
+			explored
+		| If(first_path, second_path) -> 
+			let first = previous_state |> explore_paths first_path in
+			let second = previous_state |> explore_paths second_path in 
+			let test1 = A.state_to_string first in 
+			let test2 = A.state_to_string second in 
+			first
+		| _ -> previous_state
+
+	let search declaration (state:A.checker_state) =		
+		let product initials transitions input = 
+    		match initials, transitions with 
+    		| (a, a2), (t1, t2) -> (t1 a input, t2 a2 input)
+		in
+
+		let cil_cfg = snd (CFGGeneration.create_cfg declaration) in
+		let cfg = { initial_state = A.initial_state; transition = fun a _ -> a } in
+
+		let partial_product = product (A.initial_state, cfg.initial_state) (A.transition, cfg.transition) in
+		let automata_result = EffectSet.fold (fun e previous -> A.transition previous e) state.effects.may A.initial_state in
+
+		let result = A.state_to_string automata_result in
+		if (result = "Error") then
+			Some (generate_report declaration state)
+		else
+			None
+
+	let check file declaration =
+		let variable_info = Cil.(declaration.svar) in
+		let _, global_function = Option.get(AFile.find_fun file variable_info) in
+		let seeds = A.select global_function in
+
+		let path_tree = paths_of global_function in
+		(* TODO: Iterate over paths and instantiate new automata when reaching branching (like reachable in PathThree.ml) *)
+		(* TODO: Convert paths to automata *)
+		let result_state = explore_paths path_tree A.initial_state in 
+		let state_pp = A.state_to_string result_state in
+		L.from (fun _ -> state_pp)
+
+		(*
+		let bugs = seeds |> L.map (search declaration) in
+		bugs |> L.filter Option.is_some |> L.map Option.get |> L.map string_of_report
+		*)
+
+	(** Might be needed later for duplicate elimination
+	let same_loc (_,s1,_,_) (_,s2,_,_) = Cil.compareLoc s1.sloc s2.sloc = 0
 	let cmp_match (_,s1,p1,_) (_,s2,p2,_) :int =
 		let l1 = s1.sloc in
 		let l2 = s2.sloc in
@@ -149,59 +216,8 @@ module Make (A : AutomataSpec) : S = struct
 			then -(compare p1 p2)
 			else -pc
 		else -lc 
-	*)
 
 	(* Remove redundant traces keeping the shortest one (wrt [cmp_match]). *)
-	(* 
 	let nodup = L.(unique_eq ~eq:same_loc % (sort ~cmp:cmp_match)) 
-	*)
-
-	let generate_report declaration st = 
-		{
-			func = Cil.(declaration.svar);
-			bug = A.bug_of_st st;
-			location = {line = 0; file = ""; byte = 0}; (* TODO: Implement getting locations. *)
-			trace = []; (* TODO: Implement getting traces. *)
-		}
-
-	type cfg_state = Entry
-	type cfg = {initial_state: A.state; transition: A.state -> A.st -> A.st option}
-	
-	let search declaration st =		
-		let product initials transitions input = 
-    		match initials, transitions with 
-    		| (a, a2), (t1, t2) -> (t1 a input, t2 a2 input)
-		in
-
-		let cil_cfg = snd (CFGGeneration.create_cfg declaration) in
-		(* TODO: Convert CFG to automata *)
-		let cfg = { initial_state = A.initial_state; transition = fun _ b -> Some b }
-		in
-
-		let partial_product = product (A.initial_state, cfg.initial_state) (A.transition, cfg.transition)
-		in
-
-		let (automata_result, cfg_result) = partial_product st
-		in
-
-		if (A.state_to_string automata_result = "Error") then
-			Some (generate_report declaration st)
-		else
-			None
-
-	let check fileAbs declaration =
-		let fn = Cil.(declaration.svar) in
-		let shape, global_function = Option.get(AFile.find_fun fileAbs fn) in
-		let seeds = A.select fileAbs declaration shape global_function in
-		
-		(**	
-			TODO: Implement:
-			- Generate automata for the control flow
-			- Return `Some state` if accepting state is reached in product by folding over CFG/product
-		*)
-
-		(* TODO: Convert to fold to apply previous state along with input *)
-		(* TODO: Add step from CFG *)
-		let bugs = seeds |> L.map (search declaration) in
-		bugs |> L.filter Option.is_some |> L.map Option.get |> L.map string_of_report
+	**)
 end

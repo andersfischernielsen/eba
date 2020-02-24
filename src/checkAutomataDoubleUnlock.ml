@@ -14,47 +14,46 @@ module L = LazyList
 
 module AutomataSpec = struct
 	let name = "Double Unlock Automata Checker"
-	type st = {
+	type checker_state = {
 		fna  : AFun.t;
 		reg  : Region.t;
 		effects : effects;
-		kreg : Regions.t;
 	}
 
-    let init_st fna effects r = { fna; reg = r; effects = effects; kreg = Regions.empty; }
+    let init_st fna effects region = { fna; reg = region; effects = effects; }
 
-	type state = Locked | Unlocked | Error of st
+	type state = Locked | Unlocked | Accept of Effects.e
 
 	(** Test *)
+
     let transition previous input = 
-		let locks = E.(mem (locks ~r:input.reg) input.effects) in
-		let unlocks = E.(mem (unlocks ~r:input.reg) input.effects) in
 		match previous with 
-        | Unlocked  -> (match (locks, unlocks) with 
-                        | true, _	-> Locked
-                        | _, true   -> Error input
-                        | _         -> previous)
-        | Locked    -> (match (locks, unlocks) with 
-                        | _, true   -> Unlocked
-                        | _         -> previous)
-        | Error e   -> Error e
+        | Unlocked  -> (match input with 
+                        | Mem(Lock, _)		-> Locked
+                        | Mem(Unlock, _)	-> Accept input
+                        | _         		-> previous)
+        | Locked    -> (match input with 
+                        | Mem(Unlock, _)   	-> Unlocked
+                        | _         		-> previous)
+        | Accept _   -> previous
 
     let initial_state = Unlocked
 
     let state_to_string state = match state with 
         | Locked -> "Locked" 
         | Unlocked -> "Unlocked" 
-        | Error _ -> "Error"
+        | Accept _ -> "Error"
 
-	let select _fla _ _ fna =
+	(* Generate states containing the region, all effects and  for a given function. *)
+	let select fna =
         let feffects = AFun.sum fna in
 		let all = E.(regions (feffects)) in
 		L.of_enum (Enum.map (init_st fna feffects) (Regions.enum all))
 
-	let trace st ef = Regions.(mem st.reg E.(regions ef))
+	let trace state effects = Regions.(mem state.reg E.(regions effects))
 
 	type bug = Region.t
-	let bug_of_st st = st.reg
+	let bug_of_st state = state.reg
 	let doc_of_report func region location trace =
 		let open PP in
 		brackets (!^ name) + newline +
