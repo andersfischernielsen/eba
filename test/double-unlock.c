@@ -16,6 +16,6 @@ void double_unlock(int flag)
 int main()
 {
 	double_unlock(1);
-	_spin_unlock(&lock1);
+	// _spin_unlock(&lock1);
 	_spin_unlock(&lock1);
 }

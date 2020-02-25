@@ -8,7 +8,7 @@
             "program": "${workspaceRoot}/bin/eba.bc",
             "arguments": [
                 "--dUa",
-                "${workspaceRoot}/test/linux/orphan-reduced.i"
+                "${workspaceRoot}/test/double-unlock.c"
             ],
             "stopOnEntry": false,
             "debugServer": 4711

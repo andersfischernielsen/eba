@@ -22,27 +22,40 @@ module AutomataSpec = struct
 
     let init_st fna effects region = { fna; reg = region; effects = effects; }
 
-	type state = Locked | Unlocked | Accept of Effects.e
+	type state = Locked | Unlocked | Error of Effects.e
+	let accepted_labels = [Lock; Unlock] 
 
 	(** Test *)
 
     let transition previous input = 
 		match previous with 
-        | Unlocked  -> (match input with 
-                        | Mem(Lock, _)		-> Locked
-                        | Mem(Unlock, _)	-> Accept input
+        | Unlocked -> (match input with 
+                    	| Mem(Lock, _)		-> Locked
+                        | Mem(Unlock, _)	-> Error input
                         | _         		-> previous)
         | Locked    -> (match input with 
                         | Mem(Unlock, _)   	-> Unlocked
                         | _         		-> previous)
-        | Accept _   -> previous
+        | Error _   -> previous
 
     let initial_state = Unlocked
+	
+	let is_accepting state = 
+		match state with 
+		| Error _ 	-> true
+		| _ 		-> false
+
+	let compare_states first second =
+		match first, second with
+		| Locked, Locked 		-> true
+		| Unlocked, Unlocked	-> true
+		| Error fst, Error snd	-> fst =. snd
+		| _ 					-> false
 
     let state_to_string state = match state with 
-        | Locked -> "Locked" 
-        | Unlocked -> "Unlocked" 
-        | Accept _ -> "Error"
+        | Locked 		-> "Locked" 
+        | Unlocked 		-> "Unlocked" 
+        | Error _ 		-> "Error"
 
 	(* Generate states containing the region, all effects and  for a given function. *)
 	let select fna =
