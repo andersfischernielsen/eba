@@ -2,6 +2,7 @@ int lock1;
 int lock2;
 
 void extern _spin_unlock(void *);
+void extern _spin_lock(void *);
 
 void double_unlock(int flag)
 {
@@ -15,7 +16,9 @@ void double_unlock(int flag)
 
 int main()
 {
+	_spin_lock(&lock1);
+	_spin_lock(&lock2);
 	double_unlock(1);
+	_spin_unlock(&lock1);
 	_spin_unlock(&lock2);
-	// _spin_unlock(&lock1);
 }

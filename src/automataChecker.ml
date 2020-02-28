@@ -1,13 +1,11 @@
 open Batteries
 open Dolog
 
-module Opts = Opts.Get
 module L = LazyList
 
 open Type
 open Abs
 open PathTree
-open Format
 open Effects
 
 module type AutomataSpec = sig
@@ -20,31 +18,25 @@ module type AutomataSpec = sig
 		previous_state : state;
 		current_state: state;
 		trace: step list;
-		matches: step list
+		matches: step list;
+		id: int;
 	}
 
 	(** States *)
 	val state_to_string : state -> string
+	val checker_state_to_string : checker_state -> string
 	val initial_state : checker_state
-	val init_state : state -> step list -> state -> step list -> checker_state
+	(* val init_state : state -> step list -> state -> step list -> checker_state *)
 	val compare_states : state -> state -> bool
 	val is_accepting : checker_state -> bool
-	val accepted_labels : mem_kind list
+	val transition_labels : mem_kind list
 	val pp_checker_state : checker_state -> SmartPrint.t
 
-	(** Selects initial contexts *)
-	(* val select : AFun.t -> checker_state L.t *)
-
-	(** Flags steps of interest for triaging. *)
-	(* val trace : checker_state -> Effects.t -> step -> bool *)
-	
 	(** Test *)
 	val transition : checker_state -> Effects.e -> step -> checker_state
 
 	(** Bug data *)
 	type bug
-	(* val bug_of_st : checker_state -> bug *)
-	val doc_of_report : Cil.varinfo -> bug -> Cil.location -> path -> PP.doc
 end
 
 module type S = sig
@@ -59,31 +51,25 @@ module Make (A : AutomataSpec) : S = struct
 		trace		: path;
 	}
 
-	let string_of_report r = A.doc_of_report r.func r.bug r.location [] |> PP.to_string
-
-	(* let generate_report declaration state  = 
-		{
-			func = Cil.(declaration.svar);
-			bug = A.bug_of_st state;
-			location = {line = 0; file = ""; byte = 0}; (* step.sloc; *)
-			trace = []; (* TODO: Implement getting traces. *)
-		} *)
-
 	type cfg_state = Entry
 	type cfg = {initial_state: A.state; transition: A.state -> Effects.e -> A.state}
 
-	let is_in_accepted_labels effect = 
+	let is_in_transition_labels effect = 
 		match effect with 
-		| Mem(kind, _) -> List.mem kind A.accepted_labels
+		| Mem(kind, _) -> List.mem kind A.transition_labels
 		| _ -> false
 
 	let rec explore_paths path previous_states = 
 		match path() with
 		| Seq(step, remaining) -> 
 			let apply_transition state = 
-				let accepted_input = EffectSet.filter is_in_accepted_labels step.effs.may |> EffectSet.to_list in
+				(* TODO: Ensure different states when branching *)
+				Format.printf "%s" (A.checker_state_to_string state);
+				let accepted_input = EffectSet.filter is_in_transition_labels step.effs.may |> EffectSet.to_list in
 				let results = List.fold_left (fun acc e -> (A.transition state e step)::acc) [] accepted_input in
-				if List.exists A.is_accepting results then results else
+				if List.exists A.is_accepting results 
+				then results 
+				else
 				explore_paths remaining results
 			in
 			let mapped = List.map apply_transition previous_states |> List.flatten in
@@ -92,33 +78,21 @@ module Make (A : AutomataSpec) : S = struct
 			explore_paths c previous_states
 		| If(true_path, false_path) -> 
 			let true_branch = explore_paths true_path previous_states in
+			let l1 = List.length true_branch in 
 			let false_branch = explore_paths false_path previous_states in 
-			let branch_states = List.append true_branch false_branch in
+			let l2 = List.length false_branch in 
+			let branch_states = true_branch @ false_branch in
+			let l3 = List.length branch_states in
 			branch_states
 		| _ -> previous_states
 
-	let search declaration (state:A.checker_state) =		
-		let product initials transitions input = 
-    		match initials, transitions with 
-    		| (a, a2), (t1, t2) -> (t1 a input, t2 a2 input)
-		in
-
-		(* let cil_cfg = snd (CFGGeneration.create_cfg declaration) in *)
-		(* let cfg = { initial_state = A.initial_state; transition = fun a _ -> a } in *)
-
-		(* let partial_product = product (A.initial_state, cfg.initial_state) (A.transition, cfg.transition) in *)
-		(* let automata_result = EffectSet.fold (fun e previous -> A.transition previous e) state.effects.may A.initial_state in *)
-
-		(* let result = A.state_to_string automata_result in
-		if (result = "Error") then
-			Some (generate_report declaration state)
-		else *)
-		None
+	let product initials transitions input = 
+		match initials, transitions with 
+		| (a, a2), (t1, t2) -> (t1 a input, t2 a2 input)
 
 	let check file declaration =
 		let variable_info = Cil.(declaration.svar) in
 		let _, global_function = Option.get(AFile.find_fun file variable_info) in
-		(* let seeds = A.select global_function in *)
 
 		let path_tree = paths_of global_function in
 		(* TODO: Convert paths to automata *)
@@ -127,13 +101,7 @@ module Make (A : AutomataSpec) : S = struct
 		let pp = List.map (fun m -> A.pp_checker_state m) matches in
 		let pp_list = List.map (fun m -> PP.to_string m) pp in
 		L.of_list pp_list
-
-		(* 
-		let bugs = seeds |> L.map (search declaration) in
-		bugs |> L.filter Option.is_some |> L.map Option.get |> L.map string_of_report 
-		*)
-
-
+end
 
 	(** Might be needed later for duplicate elimination
 	let same_loc (_,s1,_,_) (_,s2,_,_) = Cil.compareLoc s1.sloc s2.sloc = 0
@@ -153,4 +121,3 @@ module Make (A : AutomataSpec) : S = struct
 	(* Remove redundant traces keeping the shortest one (wrt [cmp_match]). *)
 	let nodup = L.(unique_eq ~eq:same_loc % (sort ~cmp:cmp_match)) 
 	**)
-end
