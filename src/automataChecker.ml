@@ -26,6 +26,7 @@ module type AutomataSpec = sig
 	val state_to_string : state -> string
 	val checker_state_to_string : checker_state -> string
 	val initial_state : checker_state
+	val copy_state : checker_state -> checker_state
 	(* val init_state : state -> step list -> state -> step list -> checker_state *)
 	val compare_states : state -> state -> bool
 	val is_accepting : checker_state -> bool
@@ -59,32 +60,34 @@ module Make (A : AutomataSpec) : S = struct
 		| Mem(kind, _) -> List.mem kind A.transition_labels
 		| _ -> false
 
-	let rec explore_paths path previous_states = 
+	let rec explore_paths path states = 
 		match path() with
 		| Seq(step, remaining) -> 
 			let apply_transition state = 
-				(* TODO: Ensure different states when branching *)
 				Format.printf "%s" (A.checker_state_to_string state);
 				let accepted_input = EffectSet.filter is_in_transition_labels step.effs.may |> EffectSet.to_list in
 				let results = List.fold_left (fun acc e -> (A.transition state e step)::acc) [] accepted_input in
-				if List.exists A.is_accepting results 
-				then results 
+				let split = 
+					(if (List.length results > 1) 
+					then (List.hd results)::(List.map (fun s -> A.copy_state s) (List.tl results))
+					else results)
+				in
+				if List.exists A.is_accepting split 
+				then split
 				else
-				explore_paths remaining results
+				explore_paths remaining split
 			in
-			let mapped = List.map apply_transition previous_states |> List.flatten in
+			let mapped = List.map apply_transition states |> List.concat in
 			mapped
-		| Assume(_, _, c) -> 
-			explore_paths c previous_states
+		| Assume(_, _, remaining) -> 
+			explore_paths remaining states
 		| If(true_path, false_path) -> 
-			let true_branch = explore_paths true_path previous_states in
-			let l1 = List.length true_branch in 
-			let false_branch = explore_paths false_path previous_states in 
-			let l2 = List.length false_branch in 
+			let copied = List.map (fun s -> A.copy_state s) states in
+			let true_branch = explore_paths true_path states in
+			let false_branch = explore_paths false_path copied in 
 			let branch_states = true_branch @ false_branch in
-			let l3 = List.length branch_states in
 			branch_states
-		| _ -> previous_states
+		| _ -> states
 
 	let product initials transitions input = 
 		match initials, transitions with 

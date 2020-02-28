@@ -50,6 +50,16 @@ module AutomataSpec = struct
 			matches=[];
 			id=r;
 		}
+	
+	let copy_state state = 
+		let r = Random.int 2000000 in
+		{ 
+			previous_state=state.previous_state; 
+			current_state=state.current_state; 
+			trace=state.trace; 
+			matches=state.matches;
+			id=r;
+		}
 
 	let with_previous state _new step = 
 		let matches = match _new with | Error _ -> step::state.matches | _ -> state.matches in
