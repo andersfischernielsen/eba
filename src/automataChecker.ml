@@ -64,7 +64,7 @@ module Make (A : AutomataSpec) : S = struct
 		match path() with
 		| Seq(step, remaining) -> 
 			let apply_transition state = 
-				Format.printf "%s" (A.checker_state_to_string state);
+				(* Format.printf "%s" (A.checker_state_to_string state); *)
 				let accepted_input = EffectSet.filter is_in_transition_labels step.effs.may |> EffectSet.to_list in
 				let results = List.fold_left (fun acc e -> (A.transition state e step)::acc) [] accepted_input in
 				let split = 
@@ -73,7 +73,7 @@ module Make (A : AutomataSpec) : S = struct
 					else results)
 				in
 				if List.exists A.is_accepting split 
-				then split
+				then split @ (explore_paths remaining [A.initial_state])
 				else
 				explore_paths remaining split
 			in
