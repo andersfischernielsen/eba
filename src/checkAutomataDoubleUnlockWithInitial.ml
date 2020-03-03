@@ -44,28 +44,28 @@ module AutomataSpec = struct
 		let init = Initial in
 		let r = Random.int 1000000 in
 		{ 
-			previous_state = init; 
-			current_state = init; 
-			trace = []; 
-			matches = [];
-			id = r;
+			previous_state=init; 
+			current_state=init; 
+			trace=[]; 
+			matches=[];
+			id=r;
 		}
 	
 	let copy_state state = 
 		let r = Random.int 1000000 in
 		let new_state = { 
-			previous_state = state.previous_state; 
-			current_state = state.current_state; 
-			trace = state.trace; 
-			matches = state.matches;
-			id = r;
+			previous_state=state.previous_state; 
+			current_state=state.current_state; 
+			trace=state.trace; 
+			matches=state.matches;
+			id=r;
 		} in 
-		(* Format.printf "%s" (checker_state_to_string new_state); *)
+		Format.printf "%s" (checker_state_to_string new_state);
 		new_state
 
 	let reset_state state = 
 		let s = match state.current_state with
-			| Unlocked _ -> state.current_state
+			| Unlocked r -> state.current_state
 			| _ -> Initial in
 		let new_state = {
 			previous_state = Initial; 
@@ -74,7 +74,7 @@ module AutomataSpec = struct
 			matches = [];
 			id = Random.int 1000000;
 		} in
-		(* Format.printf "%s" (checker_state_to_string new_state); *)
+		Format.printf "%s" (checker_state_to_string new_state);
 		new_state
 
 	let with_previous state _new step = 
@@ -86,7 +86,7 @@ module AutomataSpec = struct
 			matches=matches;
 			id=state.id
 		} in
-		(* Format.printf "%s" (checker_state_to_string new_state); *)
+		Format.printf "%s" (checker_state_to_string new_state);
 		new_state
 		
 	(** Test *)
@@ -103,7 +103,7 @@ module AutomataSpec = struct
         | Initial -> 
 			(match input with 
 			| Mem(Lock, r)		-> next (Locked r)
-			| Mem(Unlock, r)	-> next (Unlocked r)
+			| Mem(Unlock, r)	-> next (Error (input, r))
 			| _					-> next previous_state
 			)
 		| Unlocked r1 ->
@@ -126,23 +126,11 @@ module AutomataSpec = struct
 
 	let compare_states first second =
 		match first, second with
-		| Initial, Initial 						-> 0
-		| Locked f, Locked s 					-> Region.compare f s
-		| Unlocked f, Unlocked s				-> Region.compare f s
-		| Error (f, fr), Error (s, sr)			-> (if f =. s then Region.compare fr sr else Pervasives.compare f s)
-		| Initial, Locked _						-> -1
-		| Initial, Unlocked _					-> -1
-		| Initial, Error _						-> -1
-		| Locked _, Initial						-> 1
-		| Locked _, Unlocked _					-> -1
-		| Locked _, Error _						-> -1
-		| Unlocked _, Initial					-> 1
-		| Unlocked _, Locked _					-> -1
-		| Unlocked _, Error _					-> -1
-		| Error _, _							-> 1
-
-	let compare_checker_states first second = 
-		compare_states (snd first).current_state (snd second).current_state
+		| Initial, Initial 						-> true
+		| Locked f, Locked s 					-> is_same_region f s
+		| Unlocked f, Unlocked s				-> is_same_region f s
+		| Error (f, fr), Error (s, sr)			-> f =. s && is_same_region fr sr
+		| _ 									-> false
 
 	let pp_checker_state (state:checker_state) = 
 		let open PP in 
@@ -153,7 +141,6 @@ module AutomataSpec = struct
 		
 		brackets (!^ name) + newline +
 		words "Double unlock" + newline
-		++ words (Printf.sprintf "%d" state.id)
 		++ match_locations + newline
 		++ words "trace:" ++ trace_locations + newline
 
