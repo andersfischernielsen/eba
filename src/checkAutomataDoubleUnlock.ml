@@ -9,6 +9,7 @@ open Random
 module L = LazyList
 
 module AutomataSpec = struct
+	(* TODO: Remove "of Region.t" since it is technically unused *)
 	type state = 
 		| Initial
 		| Locked of Region.t
@@ -20,7 +21,6 @@ module AutomataSpec = struct
 	let name = "Double Unlock Automata Checker"
 	
 	type checker_state = {
-		previous_state : state;
 		current_state: state;
 		trace: step list;
 		matches: step list;
@@ -37,50 +37,50 @@ module AutomataSpec = struct
 		st |> PP.to_string
 
 	let checker_state_to_string state = 
-		Format.sprintf "{\n  id=%i\n  previous_state=%s\n  current_state=%s\n}\n" 
-			(state.id) (state_to_string state.previous_state) (state_to_string state.current_state)
+		Format.sprintf "{\n  id=%i\n  current_state=%s\n}\n" 
+			(state.id) (state_to_string state.current_state)
 
 	let initial_state = 
 		let init = Initial in
 		let r = Random.int 1000000 in
 		{ 
-			previous_state = init; 
 			current_state = init; 
 			trace = []; 
 			matches = [];
 			id = r;
 		}
 	
+	(* 
 	let copy_state state = 
 		let r = Random.int 1000000 in
 		let new_state = { 
-			previous_state = state.previous_state; 
 			current_state = state.current_state; 
 			trace = state.trace; 
 			matches = state.matches;
 			id = r;
 		} in 
 		(* Format.printf "%s" (checker_state_to_string new_state); *)
-		new_state
+		new_state 
+	*)
 
+	(* 
 	let reset_state state = 
 		let s = match state.current_state with
 			| Unlocked _ -> state.current_state
 			| _ -> Initial in
 		let new_state = {
-			previous_state = Initial; 
 			current_state = s; 
 			trace = [];
 			matches = [];
 			id = Random.int 1000000;
 		} in
 		(* Format.printf "%s" (checker_state_to_string new_state); *)
-		new_state
+		new_state 
+	*)
 
 	let with_previous state _new step = 
 		let matches = match _new with | Error _ -> step::state.matches | _ -> state.matches in
 		let new_state = { 
-			previous_state=state.current_state; 
 			trace=step::state.trace; 
 			current_state=_new; 
 			matches=matches;
@@ -91,8 +91,6 @@ module AutomataSpec = struct
 		
 	(** Test *)
 	let is_same_region f s = 
-		let f_pp = Region.to_string f in 
-		let s_pp = Region.to_string s in 
 		let compare = Region.compare f s in 
 		compare = 0
 
@@ -151,9 +149,9 @@ module AutomataSpec = struct
 		let match_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline matches in
 		let trace_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline trace in
 		
-		brackets (!^ name) + newline +
-		words "Double unlock" + newline
-		++ words (Printf.sprintf "%d" state.id)
+		brackets (!^ name) + newline + newline
+		++ words "at:"
+		(* ++ words (Printf.sprintf "%d" state.id) *)
 		++ match_locations + newline
 		++ words "trace:" ++ trace_locations + newline
 

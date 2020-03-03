@@ -14,7 +14,7 @@ module type AutomataSpec = sig
 
 	(** Checker's internal state, eg. memory regions to track. *)
 	type checker_state = {
-		previous_state : state;
+		(* previous_state : state; *)
 		current_state: state;
 		trace: step list;
 		matches: step list;
@@ -22,13 +22,13 @@ module type AutomataSpec = sig
 	}
 
 	(** States *)
-	val state_to_string : state -> string
-	val checker_state_to_string : checker_state -> string
 	val initial_state : checker_state
-	val copy_state : checker_state -> checker_state
-	val reset_state : checker_state -> checker_state
+	(* val state_to_string : state -> string *)
+	(* val checker_state_to_string : checker_state -> string *)
+	(* val copy_state : checker_state -> checker_state *)
+	(* val reset_state : checker_state -> checker_state *)
 	(* val init_state : state -> step list -> state -> step list -> checker_state *)
-	val compare_states : state -> state -> int
+	(* val compare_states : state -> state -> int *)
 	val compare_checker_states : region * checker_state -> region * checker_state -> int
 	val is_accepting : checker_state -> bool
 	val transition_labels : mem_kind list
@@ -48,17 +48,12 @@ end
 
 
 module Make (A : AutomataSpec) : S = struct
-	(* 
-	type cfg_state = Entry
-	type cfg = {initial_state: A.state; transition: A.state -> Effects.e -> A.state} 
-	*)
 	module RegionMonitorKey = 
 	struct
 		type t = region * A.checker_state
 		let compare = fun f s -> A.compare_checker_states f s
 	end
 	module RegionMonitorMap = Map.Make(RegionMonitorKey)
-	
 
 	let is_in_transition_labels effect = 
 		match effect with 

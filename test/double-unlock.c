@@ -14,12 +14,9 @@ void double_unlock(int flag)
 		_spin_unlock(&lock2);
 	}
 
-	_spin_unlock(&lock3);
-
-
-	// while (flag == 0) {
-	// 	_spin_unlock(&lock3)
-	// }
+	while (flag == 1) {
+		_spin_unlock(&lock3);
+	}
 }
 
 int main()
