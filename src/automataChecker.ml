@@ -38,8 +38,6 @@ module type S = sig
 	val check : AFile.t -> Cil.fundec -> string L.t
 end
 
-
-
 module Make (A : AutomataSpec) : S = struct
 	module RegionMonitorKey = 
 	struct

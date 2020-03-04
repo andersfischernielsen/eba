@@ -12,9 +12,9 @@ module AutomataSpec = struct
 	(* TODO: Remove "of Region.t" since it is technically unused *)
 	type state = 
 		| Initial
-		| Locked of Region.t
-		| Unlocked of Region.t
-		| Error of Effects.e * Region.t
+		| Locked
+		| Unlocked
+		| Error of Effects.e
 
 	let transition_labels = [Lock; Unlock] 
 
@@ -31,9 +31,9 @@ module AutomataSpec = struct
 		let open PP in
 		let st = match state with 
 		| Initial -> words "Initial"
-        | Locked r 	-> words "Locked" ++ brackets (Region.pp r)
-        | Unlocked r -> words "Unlocked" ++ brackets (Region.pp r)
-        | Error (e, r) -> words "Error" ++ brackets (Effects.pp_e e + comma ++ (Region.pp r)) in
+        | Locked 	-> words "Locked"
+        | Unlocked -> words "Unlocked"
+        | Error e -> words "Error" ++ brackets (Effects.pp_e e) in
 		st |> PP.to_string
 
 	let checker_state_to_string state = 
@@ -100,20 +100,20 @@ module AutomataSpec = struct
 		match previous_state with 
         | Initial -> 
 			(match input with 
-			| Mem(Lock, r)		-> next (Locked r)
-			| Mem(Unlock, r)	-> next (Unlocked r)
+			| Mem(Lock, _)		-> next Locked
+			| Mem(Unlock, _)	-> next Unlocked
 			| _					-> next previous_state
 			)
-		| Unlocked r1 ->
+		| Unlocked ->
 			(match input with 
-			| Mem(Lock, r2)		when is_same_region r1 r2 	-> next (Locked r2)
-			| Mem(Unlock, r2) 	when is_same_region r1 r2 	-> next (Error (input, r2))
-			| _         									-> next previous_state
+			| Mem(Lock, _)		-> next Locked
+			| Mem(Unlock, _)	-> next (Error input)
+			| _         		-> next previous_state
 			)
-        | Locked r1 ->
+        | Locked ->
 			(match input with 
-			| Mem(Unlock, r2) when is_same_region r1 r2 -> next (Unlocked r2)
-			| _         								-> next previous_state
+			| Mem(Unlock, _)	-> next Unlocked
+			| _         		-> next previous_state
 			)
         | Error _	-> next previous_state
 	
@@ -124,23 +124,16 @@ module AutomataSpec = struct
 
 	let compare_states first second =
 		match first, second with
-		| Initial, Initial 						-> 0
-		| Locked f, Locked s 					-> Region.compare f s
-		| Unlocked f, Unlocked s				-> Region.compare f s
-		| Error (f, fr), Error (s, sr)			-> (if f =. s then Region.compare fr sr else Pervasives.compare f s)
-		| Initial, Locked _						-> -1
-		| Initial, Unlocked _					-> -1
-		| Initial, Error _						-> -1
-		| Locked _, Initial						-> 1
-		| Locked _, Unlocked _					-> -1
-		| Locked _, Error _						-> -1
-		| Unlocked _, Initial					-> 1
-		| Unlocked _, Locked _					-> -1
-		| Unlocked _, Error _					-> -1
-		| Error _, _							-> 1
+		| Initial, Initial 		-> true
+		| Locked, Locked 		-> true
+		| Unlocked, Unlocked	-> true
+		| Error fe, Error se	-> fe =. se
+		| _						-> false
 
 	let compare_checker_states first second = 
-		compare_states (snd first).current_state (snd second).current_state
+		if compare_states (snd first).current_state (snd second).current_state
+		then Region.compare (fst first) (fst second)
+		else -1
 
 	let pp_checker_state (state:checker_state) = 
 		let open PP in 
