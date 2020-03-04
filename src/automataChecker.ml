@@ -59,9 +59,7 @@ module Make (A : AutomataSpec) : S = struct
 				match l with
 				| [] -> (prev @ [x]) :: acc |> List.rev
 				| hd::tl as l -> aux (prev @ [hd]) ((prev @ [x] @ l) :: acc) tl in 
-				aux [] [] l 
-		in
-
+				aux [] [] l in
 		match l with 
 		| [] -> []
 		| hd::[] -> [[hd]]
@@ -70,6 +68,8 @@ module Make (A : AutomataSpec) : S = struct
 	let get_region e = 
 		match e with 
 		| Mem(_, r) -> Some r
+		(* 	If the given effect isn't a Mem, then we're not interested in it, 
+			since it doesn't contain relevant information. *)
 		| _ -> None
 
 	let rec explore_paths path map = 
@@ -80,18 +80,18 @@ module Make (A : AutomataSpec) : S = struct
 			let shown_path = remaining() in
 			let apply_transition effect map = 
 				let region = get_region effect in 
-					match region with 
-					| Some r -> 
-							(* Find the previous result if present, then determine new checker_state. *)
-							let result = Map.find_default [A.initial_state] r map in 
-							let m = List.fold_left (fun acc s -> A.transition s effect step :: acc) [] result in
-							Map.add r m map
-					| None -> map
+				match region with 
+				| Some r -> 
+					(* Find the previous result if present, then determine new checker_state. *)
+					let result = Map.find_default [A.initial_state] r map in 
+					let m = List.fold_left (fun acc s -> A.transition s effect step :: acc) [] result in
+					Map.add r m map
+				| None -> map
 			in
 
 			let input = EffectSet.filter is_in_transition_labels step.effs.may |> EffectSet.to_list in
-			if List.is_empty input 
 			(* Skip step if the effects are uninteresting *)
+			if List.is_empty input 
 			then explore_paths remaining map 
 			else 
 				(* 	Find all permutations of effects e.g. {{lock, unlock} -> {{lock, unlock}, {unlock, lock}} 
