@@ -18,6 +18,8 @@ RUN apt-get install -y bc
 
 RUN apt-get install -y libelf-dev
 
+RUN git clone https://github.com/torvalds/linux.git
+
 COPY docker-checkout-make.sh /docker-checkout-make.sh
 
 RUN chmod +x /docker-checkout-make.sh
