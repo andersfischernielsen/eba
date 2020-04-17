@@ -24,18 +24,24 @@ module type AutomataSpec = sig
 	val initial_state : checker_state
 	val is_accepting : checker_state -> bool
 	val transition_labels : mem_kind list
-	val pp_checker_state : checker_state -> name -> SmartPrint.t
+	val pp_checker_state : checker_state -> SmartPrint.t
 	val checker_state_to_string : checker_state -> string
+	val filter_results : checker_state list -> checker_state list
 
 	(** Test *)
 	val transition : checker_state -> Effects.e -> step -> checker_state
 end
 
 module type S = sig
-	val check : AFile.t -> Cil.fundec -> string L.t
+	type result
+	val check : AFile.t -> Cil.fundec -> result list
+	val filter_results : result list -> result list
+	val stringify_results : result list -> string list
 end
 
 module Make (A : AutomataSpec) : S = struct
+	type result = A.checker_state
+
 	let is_in_transition_labels effect = 
 		match effect with 
 		| Mem(kind, _) -> List.mem kind A.transition_labels
@@ -121,7 +127,7 @@ module Make (A : AutomataSpec) : S = struct
 
 	let check file declaration =
 		let variable_info = Cil.(declaration.svar) in
-		match variable_info.vstorage with | Static -> L.of_list []
+		match variable_info.vstorage with | Static -> []
 		| _ ->
 			let _, global_function = Option.get(AFile.find_fun file variable_info) in
 			let path_tree = paths_of global_function in
@@ -129,8 +135,12 @@ module Make (A : AutomataSpec) : S = struct
 			let states = Map.values results in
 			let matches = Enum.fold (fun acc m -> (List.filter A.is_accepting m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 
-			let function_name = Cil.(variable_info.vname) in 
-			let pp = List.map (fun m -> A.pp_checker_state m function_name) matches_reversed in
-			let pp_list = List.map (fun m -> PP.to_string m) pp in
-			L.of_list pp_list
+			matches_reversed
+
+	let filter_results matches = matches |> A.filter_results
+
+	let stringify_results matches = 
+		let pp = List.map (fun m -> A.pp_checker_state m) matches in
+		let pp_list = List.map (fun m -> PP.to_string m) pp in
+		pp_list
 end

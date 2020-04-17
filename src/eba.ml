@@ -18,18 +18,22 @@ type checks = {
 }
 
 let run_checks checks file fileAbs :unit =
-	let run_check_fun fd in_func =
+	let print_bugs = 
 		let with_warn_out print =
 			if Opts.Get.warn_output()
 			then File.with_file_out (Cil.(file.fileName) ^ ".warn") print
 			else print IO.stdout
 		in
-		in_func fileAbs fd |> L.iter (fun errmsg ->
+		L.iter (fun errmsg ->
 		 	with_warn_out (fun out ->
 				Printf.fprintf out "\nPotential BUG found:\n%s\n\n" errmsg
 			)
 		)
 	in
+	
+	let run_check_fun fd in_func = in_func fileAbs fd |> print_bugs
+	in
+
 	let fds = Cil.(file.globals) |> List.filter_map (function
 		| Cil.GFun(fd,_) -> Some fd
 		| ______________ -> None
@@ -50,9 +54,15 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckDUnlockFlow2Inverse.in_func;
 		if checks.chk_birq
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
-		if checks.chk_automata_double_unlock
-		then run_check_fun fd CheckAutomataDoubleUnlock.check;
-	)
+	);
+	if checks.chk_automata_double_unlock
+	then 
+		List.map (fun fd -> CheckAutomataDoubleUnlock.check fileAbs fd) fds
+		|> List.flatten 
+		|> CheckAutomataDoubleUnlock.filter_results 
+		|> CheckAutomataDoubleUnlock.stringify_results
+		|> L.of_list 
+		|> print_bugs
 
 let infer_file checks fn =
 	let file = Frontc.parse fn () in

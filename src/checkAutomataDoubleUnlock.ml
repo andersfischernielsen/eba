@@ -10,7 +10,6 @@ module L = LazyList
 
 module AutomataSpec = struct
 	type state = 
-		| Initial
 		| Locked
 		| Unlocked
 		| Error of Effects.e
@@ -28,7 +27,6 @@ module AutomataSpec = struct
 	let state_to_string state = 
 		let open PP in
 		let st = match state with 
-        | Initial 	-> words "Initial"
 		| Locked 	-> words "Locked"
         | Unlocked -> words "Unlocked"
         | Error e -> words "Error" ++ brackets (Effects.pp_e e) in
@@ -57,12 +55,6 @@ module AutomataSpec = struct
 		let next new_state = with_previous previous new_state step in
 		let previous_state = previous.current_state in 
 		match previous_state with 
-		| Initial ->
-			(match input with 
-			| Mem(Lock, _)		-> next Locked
-			| Mem(Unlock, _)	-> next Unlocked
-			| _         		-> next previous_state
-			)
 		| Unlocked ->
 			(match input with 
 			| Mem(Lock, _)		-> (*pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n";*) next Locked
@@ -81,7 +73,23 @@ module AutomataSpec = struct
 		| Error _ 	-> true
 		| _ 		-> false
 
-	let pp_checker_state (state:checker_state) function_name = 
+	let filter_results (matches: checker_state list) = 
+		let no_duplicate_regions = List.fold_right (fun current acc -> 
+			match current.current_state with 
+			| Error r -> if Set.mem r (snd acc) 
+						 then acc else (* If the region has already been detected, skip it. *)
+						 (current::(fst acc), Set.add r (snd acc)) (* Otherwise include it. *)
+			| _ -> acc)
+		matches ([], Set.empty) in 
+		fst no_duplicate_regions
+
+	let pp_checker_state (state:checker_state) = 
+		let contains s1 s2 =
+    		let re = Str.regexp_string s2 in
+        	try ignore (Str.search_forward re s1 0); true
+        	with Not_found -> false
+		in 
+
 		let open PP in 
 		let matches = List.rev state.matches in 
 		let trace = List.rev state.trace in 
@@ -89,7 +97,6 @@ module AutomataSpec = struct
 		let trace_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline trace in
 		
 		brackets (!^ name) + newline + newline
-		++ words "in: " + newline + (!^ function_name) + newline
 		++ words "at:" ++ match_locations + newline
 		++ words "trace:" ++ trace_locations + newline
 end
