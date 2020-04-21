@@ -23,6 +23,7 @@ module type AutomataSpec = sig
 	(** States *)
 	val initial_state : checker_state
 	val is_accepting : checker_state -> bool
+	val is_error : checker_state -> bool
 	val transition_labels : mem_kind list
 	val pp_checker_state : checker_state -> SmartPrint.t
 	val checker_state_to_string : checker_state -> string
@@ -74,7 +75,10 @@ module Make (A : AutomataSpec) : S = struct
 			BatMap.iter (fun k v -> Format.printf "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names) ) m;
 			Format.printf "%s" "\n"
 
-	let rec explore_paths (func:AFun.t) path map (should_inline:bool)= 
+	let print_effects step = 
+		step.effs.must |> EffectSet.iter (fun e -> pp_e e |> PP.to_string |> Format.printf "%s ")
+
+	let rec explore_paths func path map (should_inline:bool) = 
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
@@ -84,13 +88,18 @@ module Make (A : AutomataSpec) : S = struct
 				| Some r -> 
 					(* Find the previous result if present, then determine new checker_state. *)
 					let result = Map.find_default [A.initial_state] r map_to_add_to in 
-					(* Format.printf "%s" "Hit innermost map\n"; *)
-					let applied = List.map (fun s -> (A.transition s effect step)) result in
-					(* Format.printf "%s" "Exited innermost map\n"; *)
+					let applied = 
+						List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) 
+						result 
+					in
 					Map.add r applied map_to_add_to
 				| None -> map_to_add_to
 			in
 
+			(* (if not should_inline then
+			Format.printf "inlined result: %s \n" (Utils.Location.pp step.sloc |> PP.to_string);
+			print_effects step; 
+			Format.printf "%s" "\n"); *)
 			
 			let input = EffectSet.filter is_in_transition_labels step.effs.must |> EffectSet.to_list in
 			(* Skip step if the effects are uninteresting *)
@@ -103,6 +112,11 @@ module Make (A : AutomataSpec) : S = struct
 					| Some (_, t) -> explore_paths func t map false
 					| None -> map
 				in
+
+				(* (if should_inline then
+				Format.printf "non-inlined result: %s \n" (Utils.Location.pp step.sloc |> PP.to_string);
+				print_effects step; 
+				Format.printf "%s" "\n"); *)
 
 				(* 	Find all permutations of effects e.g. {{lock, unlock} -> {{lock, unlock}, {unlock, lock}} 
 					in order to evaluate all effect orders. *)
@@ -133,11 +147,11 @@ module Make (A : AutomataSpec) : S = struct
 			let path_tree = paths_of global_function in
 			let results = explore_paths global_function path_tree Map.empty true in 
 			let states = Map.values results in
-			let matches = Enum.fold (fun acc m -> (List.filter A.is_accepting m) @ acc) [] states in
+			let matches = Enum.fold (fun acc m -> (List.filter A.is_error m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 
 			matches_reversed
 
-	let filter_results matches = matches |> A.filter_results
+	let filter_results matches = A.filter_results matches
 
 	let stringify_results matches = 
 		let pp = List.map (fun m -> A.pp_checker_state m) matches in

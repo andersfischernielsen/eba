@@ -73,23 +73,22 @@ module AutomataSpec = struct
 		| Error _ 	-> true
 		| _ 		-> false
 
+	let is_error state = is_accepting state
+
 	let filter_results (matches: checker_state list) = 
 		let no_duplicate_regions = List.fold_right (fun current acc -> 
-			match current.current_state with 
-			| Error r -> if Set.mem r (snd acc) 
-						 then acc else (* If the region has already been detected, skip it. *)
-						 (current::(fst acc), Set.add r (snd acc)) (* Otherwise include it. *)
-			| _ -> acc)
+			if List.exists (fun e -> Set.mem e (snd acc)) current.matches 
+			then acc (* If a step has already been detected, skip it. *) 
+			else 
+				(* Otherwise, include it. *)
+				let union = Set.union (Set.of_list current.matches) (snd acc) in
+				(current::(fst acc), union))
 		matches ([], Set.empty) in 
+		let s = (Set.fold (fun (e:step) acc -> ((Utils.Location.pp e.sloc |> PP.to_string) ^ " " ^ (string_of_step e)) ^ "\n" ^ acc) (snd no_duplicate_regions) "") in
+		Format.printf "set contents: \n%s" s;
 		fst no_duplicate_regions
 
 	let pp_checker_state (state:checker_state) = 
-		let contains s1 s2 =
-    		let re = Str.regexp_string s2 in
-        	try ignore (Str.search_forward re s1 0); true
-        	with Not_found -> false
-		in 
-
 		let open PP in 
 		let matches = List.rev state.matches in 
 		let trace = List.rev state.trace in 
