@@ -60,92 +60,104 @@ module Make (A : AutomataSpec) : S = struct
 		| [hd] -> [[hd]]
 		| hd::tl -> List.fold_left (fun acc p -> acc @ insert_all_positions hd p) [] (permute tl)
 
-	let get_region e = 
+	let apply_to_region e success failure = 
 		match e with 
-		| Mem(_, r) -> Some r
+		| Mem(_, r) -> success r
 		(* 	If the given effect isn't a Mem, then we're not interested in it, 
 			since it doesn't contain relevant information. *)
-		| _ -> None
+		| _ -> failure
+
+	let for_all_results es map pred = List.for_all (fun e -> 
+		apply_to_region e (fun r -> 
+			let results = Map.find r map in 
+			List.for_all (fun state -> pred state) results
+		) false) es
 
 	let print_map m s = 
-		if Map.is_empty m then Format.printf "%s %s" s "None\n"
+		if Map.is_empty m then Format.printf "%s %s" s "Empty\n"
 		else
 			let gen_names ss = List.fold_right (fun s acc -> Format.sprintf "%s " (A.checker_state_to_string s) ^ acc ) ss "" in
 			Format.printf "%s\n" s;
 			BatMap.iter (fun k v -> Format.printf "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names) ) m;
 			Format.printf "%s" "\n"
 
-	let print_effects step = 
-		step.effs.must |> EffectSet.iter (fun e -> pp_e e |> PP.to_string |> Format.printf "%s ")
+	let stringify_effects effects = 
+		List.fold_right (fun e acc -> Format.sprintf "%s %s " (pp_e e |> PP.to_string) acc) effects ""
 
-	let rec explore_paths func path map (should_inline:bool) = 
+	let rec explore_paths func path map = 
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
-			let apply_transition effect map_to_add_to = 
-				let region = get_region effect in 
-				match region with 
-				| Some r -> 
-					(* Find the previous result if present, then determine new checker_state. *)
-					let result = Map.find_default [A.initial_state] r map_to_add_to in 
-					let applied = 
-						List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) 
-						result 
-					in
-					Map.add r applied map_to_add_to
-				| None -> map_to_add_to
-			in
-
-			(* (if not should_inline then
-			Format.printf "inlined result: %s \n" (Utils.Location.pp step.sloc |> PP.to_string);
-			print_effects step; 
-			Format.printf "%s" "\n"); *)
-			
 			let input = EffectSet.filter is_in_transition_labels step.effs.must |> EffectSet.to_list in
+			
 			(* Skip step if the effects are uninteresting *)
 			if List.is_empty input 
-			then explore_paths func remaining map true
-			else 
-				let inlined_result = if not should_inline then map else 
-					let inlined = inline func step in
-					match inlined with
-					| Some (_, t) -> explore_paths func t map false
-					| None -> map
+			then explore_paths func remaining map
+			else
+				let apply_transition effect map_to_add_to = 
+					let result = apply_to_region effect (fun r -> 
+						(* Find the previous result if present, then determine new checker_state. *)
+						let result = Map.find_default [A.initial_state] r map_to_add_to in 
+						let applied = 
+							List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) 
+							result 
+						in
+						Map.add r applied map_to_add_to) (map_to_add_to) in
+					result
 				in
-
-				(* (if should_inline then
-				Format.printf "non-inlined result: %s \n" (Utils.Location.pp step.sloc |> PP.to_string);
-				print_effects step; 
-				Format.printf "%s" "\n"); *)
 
 				(* 	Find all permutations of effects e.g. {{lock, unlock} -> {{lock, unlock}, {unlock, lock}} 
 					in order to evaluate all effect orders. *)
 				let permutations = permute input in 
-				let changed_map = List.fold_right (fun effects map_to_change ->
+				let result = List.fold_left (fun map_to_change effects ->
 						(* 	For each effect in a given permutation, apply the transition function, 
 							and add the result to the (region, checker_state) -> [checker_state] map. 
 							
 							This expresses that a given region has multiple state machines monitoring it 
 							if multiple evaluation orders are possible for the effects of that region. *)
-						List.fold_right (fun effect acc -> apply_transition effect acc) effects map_to_change
-					) permutations inlined_result in
-				explore_paths func remaining changed_map true
+						List.fold_left (fun acc effect -> apply_transition effect acc) map_to_change effects 
+					) map permutations in
+
+				let all_are_error = for_all_results input result (fun state -> A.is_accepting state) in
+				let all_are_not_error = for_all_results input result (fun state -> not (A.is_accepting state)) in
+				
+				(* 	If some --- but not all --- states are errors then there's uncertainty about whether the given step 
+					will lead to an error. Therefore we inline in order to find out whether an error is really present. 
+					If all states are errors or all states are not errors, we just continue exploration. 
+				*)
+
+				if all_are_error || all_are_not_error then explore_paths func remaining result
+				else 
+					let inlined_result = 
+						match inline func step with
+						| Some (_, inlined_path) -> explore_paths func inlined_path map
+						| None -> result
+					in
+					explore_paths func remaining inlined_result
 		| Assume(_, _, remaining) -> 
-			explore_paths func remaining map true
+			explore_paths func remaining map
 		| If(true_path, false_path) -> 
-			let true_branch = explore_paths func true_path map true in
-			let false_branch = explore_paths func false_path map true in 
-			let union = Map.union true_branch false_branch in 
-			union
+			let true_branch = explore_paths func true_path map in
+			let false_branch = explore_paths func false_path map in
+			let merge = 
+				Map.merge (fun _ a b -> 
+					(match a, b with 
+					| Some aa, Some bb -> Some (aa @ bb)
+					| None, Some _ -> b
+					| Some _, None -> a
+					| None, None -> None)
+				) true_branch false_branch in 
+			merge
 		| Nil -> map
 
 	let check file declaration =
 		let variable_info = Cil.(declaration.svar) in
-		match variable_info.vstorage with | Static -> []
+		match variable_info.vstorage with 
+		| Static -> []
 		| _ ->
 			let _, global_function = Option.get(AFile.find_fun file variable_info) in
 			let path_tree = paths_of global_function in
-			let results = explore_paths global_function path_tree Map.empty true in 
+			let results = explore_paths global_function path_tree Map.empty in 
 			let states = Map.values results in
 			let matches = Enum.fold (fun acc m -> (List.filter A.is_error m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 

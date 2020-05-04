@@ -10,8 +10,8 @@ module L = LazyList
 
 module AutomataSpec = struct
 	type state = 
-		| Locked
 		| Unlocked
+		| Locked
 		| Error of Effects.e
 
 	let transition_labels = [Lock; Unlock] 
@@ -58,7 +58,7 @@ module AutomataSpec = struct
 		| Unlocked ->
 			(match input with 
 			| Mem(Lock, _)		-> (*pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n";*) next Locked
-			| Mem(Unlock, _)	-> (*pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Error\n";*) next (Error input)
+			| Mem(Unlock, _)	-> next (Error input)
 			| _         		-> next previous_state
 			)
         | Locked ->
@@ -76,16 +76,16 @@ module AutomataSpec = struct
 	let is_error state = is_accepting state
 
 	let filter_results (matches: checker_state list) = 
+		let sorted = List.sort 
+			(fun a b -> Int.compare (List.length a.trace) (List.length b.trace)) 
+			matches in 
 		let no_duplicate_regions = List.fold_right (fun current acc -> 
 			if List.exists (fun e -> Set.mem e (snd acc)) current.matches 
 			then acc (* If a step has already been detected, skip it. *) 
-			else 
-				(* Otherwise, include it. *)
+			else (* Otherwise, include it. *)
 				let union = Set.union (Set.of_list current.matches) (snd acc) in
 				(current::(fst acc), union))
-		matches ([], Set.empty) in 
-		let s = (Set.fold (fun (e:step) acc -> ((Utils.Location.pp e.sloc |> PP.to_string) ^ " " ^ (string_of_step e)) ^ "\n" ^ acc) (snd no_duplicate_regions) "") in
-		Format.printf "set contents: \n%s" s;
+		sorted ([], Set.empty) in 
 		fst no_duplicate_regions
 
 	let pp_checker_state (state:checker_state) = 
