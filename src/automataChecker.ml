@@ -42,6 +42,7 @@ end
 
 module Make (A : AutomataSpec) : S = struct
 	type result = A.checker_state
+	type checking_type = Must | May
 
 	let is_in_transition_labels effect = 
 		match effect with 
@@ -63,14 +64,19 @@ module Make (A : AutomataSpec) : S = struct
 	let apply_to_region e success failure = 
 		match e with 
 		| Mem(_, r) -> success r
-		(* 	If the given effect isn't a Mem, then we're not interested in it, 
-			since it doesn't contain relevant information. *)
+		(* 	If the given effect isn't a Mem, then we're not interested in it, since it doesn't contain relevant information. *)
 		| _ -> failure
 
 	let for_all_results es map pred = List.for_all (fun e -> 
 		apply_to_region e (fun r -> 
 			let results = Map.find r map in 
 			List.for_all (fun state -> pred state) results
+		) false) es
+
+	let for_any_results es map pred = List.exists (fun e -> 
+		apply_to_region e (fun r -> 
+			let results = Map.find r map in 
+			List.exists (fun state -> pred state) results
 		) false) es
 
 	let print_map m s = 
@@ -84,25 +90,28 @@ module Make (A : AutomataSpec) : S = struct
 	let stringify_effects effects = 
 		List.fold_right (fun e acc -> Format.sprintf "%s %s " (pp_e e |> PP.to_string) acc) effects ""
 
-	let rec explore_paths func path map = 
+	let rec explore_paths func path map check_type = 
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
-			let input = EffectSet.filter is_in_transition_labels step.effs.must |> EffectSet.to_list in
+			let input = (match check_type with
+				| May 	-> EffectSet.filter is_in_transition_labels step.effs.may
+				| Must 	-> EffectSet.filter is_in_transition_labels step.effs.must) 
+			|> EffectSet.to_list 
+			in
 			
 			(* Skip step if the effects are uninteresting *)
 			if List.is_empty input 
-			then explore_paths func remaining map
+			then explore_paths func remaining map check_type
 			else
 				let apply_transition effect map_to_add_to = 
 					let result = apply_to_region effect (fun r -> 
 						(* Find the previous result if present, then determine new checker_state. *)
 						let result = Map.find_default [A.initial_state] r map_to_add_to in 
 						let applied = 
-							List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) 
-							result 
+							List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) result 
 						in
-						Map.add r applied map_to_add_to) (map_to_add_to) in
+						Map.add r applied map_to_add_to) map_to_add_to in
 					result
 				in
 
@@ -118,27 +127,27 @@ module Make (A : AutomataSpec) : S = struct
 						List.fold_left (fun acc effect -> apply_transition effect acc) map_to_change effects 
 					) map permutations in
 
-				let all_are_error = for_all_results input result (fun state -> A.is_accepting state) in
-				let all_are_not_error = for_all_results input result (fun state -> not (A.is_accepting state)) in
+				let are_all_error = for_all_results input result A.is_accepting in
+				let are_all_not_error = for_all_results input result (fun state -> not (A.is_accepting state)) in
 				
 				(* 	If some --- but not all --- states are errors then there's uncertainty about whether the given step 
 					will lead to an error. Therefore we inline in order to find out whether an error is really present. 
 					If all states are errors or all states are not errors, we just continue exploration. 
 				*)
 
-				if all_are_error || all_are_not_error then explore_paths func remaining result
+				if are_all_error || are_all_not_error then explore_paths func remaining result check_type
 				else 
 					let inlined_result = 
 						match inline func step with
-						| Some (_, inlined_path) -> explore_paths func inlined_path map
-						| None -> result
+						| Some (_, inlined_path) 	-> explore_paths func inlined_path map Must
+						| _ 							-> result
 					in
-					explore_paths func remaining inlined_result
+					explore_paths func remaining inlined_result check_type
 		| Assume(_, _, remaining) -> 
-			explore_paths func remaining map
+			explore_paths func remaining map check_type
 		| If(true_path, false_path) -> 
-			let true_branch = explore_paths func true_path map in
-			let false_branch = explore_paths func false_path map in
+			let true_branch = explore_paths func true_path map check_type in
+			let false_branch = explore_paths func false_path map check_type in
 			let merge = 
 				Map.merge (fun _ a b -> 
 					(match a, b with 
@@ -157,7 +166,7 @@ module Make (A : AutomataSpec) : S = struct
 		| _ ->
 			let _, global_function = Option.get(AFile.find_fun file variable_info) in
 			let path_tree = paths_of global_function in
-			let results = explore_paths global_function path_tree Map.empty in 
+			let results = explore_paths global_function path_tree Map.empty Must in 
 			let states = Map.values results in
 			let matches = Enum.fold (fun acc m -> (List.filter A.is_error m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 
