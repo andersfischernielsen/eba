@@ -22,6 +22,7 @@ module AutomataSpec = struct
 		current_state: state;
 		trace: step list;
 		matches: step list;
+		kill_region: Regions.t
 	}
 
 	let state_to_string state = 
@@ -35,19 +36,25 @@ module AutomataSpec = struct
 	let checker_state_to_string state = 
 		Format.sprintf "{ current_state=%s }" (state_to_string state.current_state)
 
-	let initial_state = 
+	let initial_state step func = 
 		{ 
 			current_state = Unlocked; 
 			trace = []; 
 			matches = [];
+			kill_region = Option.Infix.(
+				find_in_stmt CilExtra.find_linux_lock_in_call step >>= Lenv.kregions_of func |? Regions.empty);
 		}
 
+	let does_write effects state = 
+		Regions.exists (fun r -> (E.(mem (writes ~r) effects))) state.kill_region
+	
 	let with_previous state _new step = 
 		let matches = match _new with | Error _ -> step::state.matches | _ -> state.matches in
 		let new_state = { 
 			trace=step::state.trace; 
 			current_state=_new; 
 			matches=matches;
+			kill_region=state.kill_region;
 		} in
 		new_state
 				
@@ -79,13 +86,19 @@ module AutomataSpec = struct
 		let sorted = List.sort 
 			(fun a b -> Int.compare (List.length a.trace) (List.length b.trace)) 
 			matches in 
+
+		let trace_repeats l = match l with
+			| [] | [_] -> false
+			| (head::tail) -> List.exists (fun t -> Cil.compareLoc head.sloc t.sloc = 0) tail in
+
 		let no_duplicate_regions = List.fold_right (fun current acc -> 
-			if List.exists (fun e -> Set.mem e (snd acc)) current.matches 
+			if List.exists (fun e -> Set.mem e (snd acc)) current.matches || trace_repeats current.trace
 			then acc (* If a step has already been detected, skip it. *) 
 			else (* Otherwise, include it. *)
 				let union = Set.union (Set.of_list current.matches) (snd acc) in
 				(current::(fst acc), union))
 		sorted ([], Set.empty) in 
+
 		fst no_duplicate_regions
 
 	let pp_checker_state (state:checker_state) = 

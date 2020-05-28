@@ -18,11 +18,13 @@ module type AutomataSpec = sig
 		current_state: state;
 		trace: step list;
 		matches: step list;
+		kill_region: Regions.t
 	}
 
 	(** States *)
-	val initial_state : checker_state
+	val initial_state : step -> AFun.t -> checker_state
 	val is_accepting : checker_state -> bool
+	val does_write : effects -> checker_state -> bool
 	val is_error : checker_state -> bool
 	val transition_labels : mem_kind list
 	val pp_checker_state : checker_state -> SmartPrint.t
@@ -107,9 +109,12 @@ module Make (A : AutomataSpec) : S = struct
 				let apply_transition effect map_to_add_to = 
 					let result = apply_to_region effect (fun r -> 
 						(* Find the previous result if present, then determine new checker_state. *)
-						let result = Map.find_default [A.initial_state] r map_to_add_to in 
+						let result = Map.find_default [A.initial_state step func] r map_to_add_to in 
 						let applied = 
-							List.map (fun s -> if A.is_accepting s then s else (A.transition s effect step)) result 
+							List.map (fun s -> 
+								if A.does_write step.effs s || A.is_accepting s 
+								then s 
+								else (A.transition s effect step)) result 
 						in
 						Map.add r applied map_to_add_to) map_to_add_to in
 					result
@@ -140,7 +145,7 @@ module Make (A : AutomataSpec) : S = struct
 					let inlined_result = 
 						match inline func step with
 						| Some (_, inlined_path) 	-> explore_paths func inlined_path map Must
-						| _ 							-> result
+						| _ 						-> result
 					in
 					explore_paths func remaining inlined_result check_type
 		| Assume(_, _, remaining) -> 
@@ -166,7 +171,7 @@ module Make (A : AutomataSpec) : S = struct
 		| _ ->
 			let _, global_function = Option.get(AFile.find_fun file variable_info) in
 			let path_tree = paths_of global_function in
-			let results = explore_paths global_function path_tree Map.empty Must in 
+			let results = explore_paths global_function path_tree Map.empty May in 
 			let states = Map.values results in
 			let matches = Enum.fold (fun acc m -> (List.filter A.is_error m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 
