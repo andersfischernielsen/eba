@@ -18,6 +18,8 @@ type copts = {
 	mutable all_lock_types : bool;
 	mutable match_lock_exp : bool;
 	mutable ignore_writes : bool;
+	(* Double free checker *)
+	mutable match_free_exp : bool;
 	(* Double unlock checker *)
 	mutable match_unlock_exp : bool;
 }
@@ -40,6 +42,8 @@ let opts : copts = {
 	all_lock_types = false;
 	match_lock_exp = true;
 	ignore_writes = false;
+
+	match_free_exp = true;
 	
 	match_unlock_exp = true;
 }
@@ -109,6 +113,8 @@ struct
 	let match_lock_exp () = opts.match_lock_exp
 
 	let match_unlock_exp () = opts.match_unlock_exp
+
+	let match_free_exp () = opts.match_free_exp
 
 	let ignore_writes () = opts.ignore_writes
 

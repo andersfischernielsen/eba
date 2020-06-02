@@ -8,6 +8,7 @@ open Abs
 module L = LazyList
 
 type checks = {
+<<<<<<< HEAD
 	  chk_uninit 					: bool
 	; chk_dlock  					: bool
 	; chk_dunlock  					: bool
@@ -15,6 +16,15 @@ type checks = {
 	; chk_uaf    					: bool
 	; chk_birq   					: bool
 	; chk_automata_double_unlock   	: bool
+=======
+	  chk_uninit 	: bool
+	; chk_dlock  	: bool
+	; chk_dfree  	: bool
+	; chk_dunlock  	: bool
+	; chk_dunlock_inv  	: bool
+	; chk_uaf    	: bool
+	; chk_birq   	: bool
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 }
 
 let run_checks checks file fileAbs :unit =
@@ -48,6 +58,11 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckUAF.in_func;
 		if checks.chk_dlock
 		then run_check_fun fd CheckDLockFlow2.in_func;
+<<<<<<< HEAD
+=======
+		if checks.chk_dfree
+		then run_check_fun fd CheckDFreeFlow2.in_func;
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 		if checks.chk_dunlock
 		then run_check_fun fd CheckDUnlockFlow2.in_func;
 		if checks.chk_dunlock_inv
@@ -90,14 +105,26 @@ let log_level_of_int = function
 	| x when x <= 0 -> Log.ERROR
 	| 1 -> Log.WARN
 	| 2 -> Log.INFO
+<<<<<<< HEAD
 	| _ -> Log.DEBUG (* x >= 3 *)
+=======
+<<<<<<< HEAD
+	| x -> Log.DEBUG (* x >= 3 *)
+=======
+	| _ -> Log.DEBUG (* x >= 3 *)
+>>>>>>> 32ea35e... Implement rudimentary double-free checker, add a toy test file
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 
 let infer_files verbosity
 		flag_gcstats flag_saveabs flag_warn_output flag_fake_gcc
 		flag_no_dce flag_no_dfe flag_safe_casts flag_externs_do_nothing
 		opt_inline_limit opt_loop_limit opt_branch_limit flag_no_path_check
 		flag_all_lock_types flag_no_match_lock_exp flag_ignore_writes
+<<<<<<< HEAD
 		chk_uninit chk_dlock chk_dunlock chk_dunlock_inv chk_uaf chk_birq chk_automata_double_unlock
+=======
+		chk_uninit chk_dlock chk_dfree chk_dunlock chk_dunlock_inv chk_uaf chk_birq
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 		files =
 	(* CIL: do not print #line directives. *)
 	Cil.lineDirectiveStyle := None;
@@ -117,7 +144,11 @@ let infer_files verbosity
 	Opts.Set.all_lock_types flag_all_lock_types;
 	Opts.Set.match_lock_exp (not flag_no_match_lock_exp);
 	Opts.Set.ignore_writes flag_ignore_writes;
+<<<<<<< HEAD
 	let checks = { chk_uninit; chk_dlock; chk_dunlock; chk_dunlock_inv; chk_uaf; chk_birq; chk_automata_double_unlock } in
+=======
+	let checks = { chk_uninit; chk_dlock; chk_dfree; chk_dunlock; chk_dunlock_inv; chk_uaf; chk_birq } in
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 	Axioms.load_axioms();
 	if flag_fake_gcc
 	then infer_file_gcc checks files
@@ -214,6 +245,13 @@ let check_dlock =
 	let doc = "Check for double locking" in
 	Arg.(value & flag & info ["L"; "dlock"] ~doc)
 
+<<<<<<< HEAD
+=======
+let check_dfree =
+	let doc = "Check for double freeing" in
+	Arg.(value & flag & info ["dF"; "dfree"] ~doc)
+
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 let check_dunlock =
 	let doc = "Check for double unlocking" in
 	Arg.(value & flag & info ["dU"; "dunlock"] ~doc)
@@ -222,10 +260,13 @@ let check_dunlock_inv =
 	let doc = "Check for double unlocking - inverse" in
 	Arg.(value & flag & info ["dUi"; "dunlockinv"] ~doc)
 
+<<<<<<< HEAD
 let check_automata_double_unlock =
 	let doc = "Check for double unlocking using automata" in
 	Arg.(value & flag & info ["dUa"; "dunlockaut"] ~doc)
 
+=======
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 let check_uaf =
 	let doc = "Check for use-after-free" in
 	Arg.(value & flag & info ["F"; "uaf"] ~doc)
@@ -251,7 +292,11 @@ let cmd =
 		$ flag_no_dce $ flag_no_dfe $ flag_safe_casts $ flag_externs_do_nothing
 		$ opt_inline_limit $ opt_loop_limit $ opt_branch_limit $ flag_no_path_check
 		$ flag_all_lock_types $ flag_no_match_lock_exp $ flag_ignore_writes
+<<<<<<< HEAD
 		$ check_uninit $ check_dlock $ check_dunlock $ check_dunlock_inv $ check_uaf $ check_birq $ check_automata_double_unlock
+=======
+		$ check_uninit $ check_dlock $ check_dfree $ check_dunlock $ check_dunlock_inv $ check_uaf $ check_birq
+>>>>>>> 7b6a8d760c3f2705da715d5215246ad3b9cddce9
 		$ files),
 	Term.info "eba" ~version:"0.1" ~doc ~man
 
