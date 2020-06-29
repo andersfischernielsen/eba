@@ -5,29 +5,30 @@ open Type
 open PathTree
 open Effects
 open Random
+open LockingAutomataHelper
 
 module L = LazyList
 
-module AutomataSpec = struct
+module AutomataSpec(Helper: LockingAutomataHelperSpec) = struct
 	type state = 
 		| Unlocked
 		| Unlocked_final
 		| Locked
 		| Error of Effects.e
 
-	let transition_labels = [Lock; Unlock] 
-
+	type checker_state = {
+			current_state: state;
+			trace: step list;
+			matches: step list;
+			kill_region: Regions.t
+		}
+	
 	let name = "Double Lock Automata Checker"
 	
-	type checker_state = {
-		current_state: state;
-		trace: step list;
-		matches: step list;
-		kill_region: Regions.t
-	}
-
+	let transition_labels = Helper.transition_labels
+	
 	let should_permute = true
-
+	
 	let state_to_string state = 
 		let open PP in
 		let st = match state with 
@@ -49,8 +50,7 @@ module AutomataSpec = struct
 				find_in_stmt CilExtra.find_linux_lock_in_call step >>= Lenv.kregions_of func |? Regions.empty);
 		}
 
-	let does_write effects state = 
-		Regions.exists (fun r -> (E.(mem (writes ~r) effects))) state.kill_region
+	let does_write effects state = Helper.does_write effects state.kill_region
 	
 	let with_previous state _new step = 
 		let matches = match _new with | Error _ -> step::state.matches | _ -> state.matches in
@@ -111,18 +111,11 @@ module AutomataSpec = struct
 
 		fst no_duplicate_regions
 
-	let pp_checker_state (state:checker_state) = 
-		let open PP in 
-		let matches = List.rev state.matches in 
-		let trace = List.rev state.trace in 
-		let match_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline matches in
-		let trace_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline trace in
-		
-		brackets (!^ name) + newline + newline
-		++ words "at:" ++ match_locations + newline
-		++ words "trace:" ++ trace_locations + newline
+	let pp_checker_state (state:checker_state) = Helper.pp_checker_state state name
 end
 
-module Checker = AutomataChecker.Make(AutomataSpec)
+module rec 
+	Checker : AutomataChecker.S = AutomataChecker.Make(AutomataSpec(Helper)) and 
+	Helper : LockingAutomataHelperSpec = LockingAutomataHelper.Helper(Checker)
 
 include Checker
