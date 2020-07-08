@@ -26,7 +26,14 @@ module AutomataSpec = struct
 		kill_region: Regions.t
 	}
 
-	let should_permute = true
+	type result = Okay of checker_state | Uncertain of checker_state
+
+	let extract_state result = 
+		match result with
+		| Okay s -> s
+		| Uncertain s -> s 
+
+	let should_permute = false
 
 	let state_to_string state = 
 		let open PP in
@@ -37,7 +44,8 @@ module AutomataSpec = struct
         | Error e -> words "Error" ++ brackets (Effects.pp_e e) in
 		st |> PP.to_string
 
-	let checker_state_to_string state = 
+	let checker_state_to_string result = 
+		let state = extract_state result in 
 		Format.sprintf "{ current_state=%s }" (state_to_string state.current_state)
 
 	let initial_state step func = 
@@ -62,24 +70,25 @@ module AutomataSpec = struct
 		} in
 		new_state
 				
+	(* TODO: Implement new state transition for lists of effects *)
     let transition previous input step = 
-		let next new_state = with_previous previous new_state step in
+		let next new_state = Okay (with_previous previous new_state step) in
 		let previous_state = previous.current_state in 
 		(* pp_step step |> PP.to_string |> Format.printf "step: %s"; *)
 		match previous_state with 
 		| Unlocked ->
 			(match input with 
-			| Mem(Lock, _)		-> (* pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n"; *) next Locked
-			| _         		-> next previous_state
+			| Mem(Lock, _)::_		-> (* pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n"; *) next Locked
+			| _         			-> next previous_state
 			)
         | Locked ->
 			(match input with 
-			| Mem(Lock, _)		-> next (Error input)
-			| Mem(Unlock, _)  	-> next Unlocked_final
-			| _ 				-> next previous_state
+			| Mem(Lock, _)::_		-> next previous_state
+			| Mem(Unlock, _)::_  	-> next Unlocked_final
+			| _ 					-> next previous_state
 			)
-		| Unlocked_final 		-> next previous_state
-        | Error _				-> next previous_state
+		| Unlocked_final 			-> next previous_state
+        | Error _					-> next previous_state
 	
 	let is_accepting state = 
 		match state.current_state with 
@@ -92,27 +101,29 @@ module AutomataSpec = struct
 		| Error _ 			-> true
 		| _ 				-> false
 
-	let filter_results (matches: checker_state list) = 
+	let filter_results (results: result list) = 
 		let sorted = List.sort 
-			(fun a b -> Int.compare (List.length a.trace) (List.length b.trace)) 
-			matches in 
+			(fun a b -> Int.compare (List.length (extract_state a).trace) (List.length (extract_state b).trace)) 
+			results in 
 
 		let trace_repeats l = match l with
 			| [] | [_] -> false
 			| (head::tail) -> List.exists (fun t -> Cil.compareLoc head.sloc t.sloc = 0) tail in
 
-		let no_duplicate_regions = List.fold_right (fun current acc -> 
+		let no_duplicate_regions = List.fold_right (fun r acc -> 
+			let current = extract_state r in
 			if List.exists (fun e -> Set.mem e (snd acc)) current.matches || trace_repeats current.trace
 			then acc (* If a step has already been detected, skip it. *) 
 			else (* Otherwise, include it. *)
 				let union = Set.union (Set.of_list current.matches) (snd acc) in
-				(current::(fst acc), union))
+				(r::(fst acc), union))
 		sorted ([], Set.empty) in 
 
 		fst no_duplicate_regions
 
-	let pp_checker_state (state:checker_state) = 
+	let pp_checker_state (result:result) = 
 		let open PP in 
+		let state = extract_state result in 
 		let matches = List.rev state.matches in 
 		let trace = List.rev state.trace in 
 		let match_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline matches in

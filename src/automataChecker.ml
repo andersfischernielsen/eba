@@ -21,6 +21,8 @@ module type AutomataSpec = sig
 		kill_region: Regions.t
 	}
 
+	type result = Okay of checker_state | Uncertain of checker_state
+
 	(** States *)
 	val initial_state : step -> AFun.t -> checker_state
 	val is_accepting : checker_state -> bool
@@ -28,23 +30,23 @@ module type AutomataSpec = sig
 	val should_permute : bool
 	val is_error : checker_state -> bool
 	val transition_labels : mem_kind list
-	val pp_checker_state : checker_state -> SmartPrint.t
-	val checker_state_to_string : checker_state -> string
-	val filter_results : checker_state list -> checker_state list
+	val pp_checker_state : result -> SmartPrint.t
+	val checker_state_to_string : result -> string
+	val filter_results : result list -> result list
 
 	(** Test *)
-	val transition : checker_state -> Effects.e -> step -> checker_state
+	val transition : checker_state -> Effects.e list -> step -> result
 end
 
 module type S = sig
-	type result
-	val check : AFile.t -> Cil.fundec -> bool -> result list
-	val filter_results : result list -> result list
-	val stringify_results : result list -> string list
+	type checker_result
+	val check : AFile.t -> Cil.fundec -> bool -> checker_result list
+	val filter_results : checker_result list -> checker_result list
+	val stringify_results : checker_result list -> string list
 end
 
 module Make (A : AutomataSpec) : S = struct
-	type result = A.checker_state
+	type checker_result = A.result
 	type checking_type = Must | May
 
 	let is_in_transition_labels effect = 
@@ -64,23 +66,18 @@ module Make (A : AutomataSpec) : S = struct
 		| [hd] -> [[hd]]
 		| hd::tl -> List.fold_left (fun acc p -> acc @ insert_all_positions hd p) [] (permute tl)
 
-	let apply_to_region e success failure = 
-		match e with 
-		| Mem(_, r) -> success r
-		(* 	If the given effect isn't a Mem, then we're not interested in it, since it doesn't contain relevant information. *)
-		| _ -> failure
+	let apply_to_region (e_r: region * e list) success = 
+		match e_r with 
+		| _, e -> success e
 
-	let for_all_results es map pred = List.for_all (fun e -> 
-		apply_to_region e (fun r -> 
-			let results = Map.find r map in 
-			List.for_all (fun state -> pred state) results
-		) false) es
+	let extract_regions r_es = 
+		let split = List.split r_es in
+		(List.hd (fst split), (snd split))
 
-	let for_any_results es map pred = List.exists (fun e -> 
-		apply_to_region e (fun r -> 
-			let results = Map.find r map in 
-			List.exists (fun state -> pred state) results
-		) false) es
+	let extract_checker_state (state:checker_result) = 
+		match state with
+		| Okay s -> s
+		| Uncertain s -> s
 
 	let print_map m s = 
 		if Map.is_empty m then Format.printf "%s %s" s "Empty\n"
@@ -93,6 +90,11 @@ module Make (A : AutomataSpec) : S = struct
 	let stringify_effects effects = 
 		List.fold_right (fun e acc -> Format.sprintf "%s %s " (pp_e e |> PP.to_string) acc) effects ""
 
+	let get_region e = 
+		match e with
+		| Mem(_, region) -> Some (region, e)
+		| _ 			 -> None
+
 	let rec explore_paths func path map check_type = 
 		let p = path() in
 		match p with
@@ -100,61 +102,63 @@ module Make (A : AutomataSpec) : S = struct
 			let input = (match check_type with
 				| May 	-> EffectSet.filter is_in_transition_labels step.effs.may
 				| Must 	-> EffectSet.filter is_in_transition_labels step.effs.must) 
-			|> EffectSet.to_list 
+			|> EffectSet.to_list
+			in
+
+			let region_options = List.map get_region input in
+			let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in 
+			
+			let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions 
+				|> List.map extract_regions 
 			in
 			
 			(* Skip step if the effects are uninteresting *)
 			if List.is_empty input 
 			then explore_paths func remaining map check_type
 			else
-				let apply_transition effect map_to_add_to = 
-					let result = apply_to_region effect (fun r -> 
-						(* Find the previous result if present, then determine new checker_state. *)
-						let result = Map.find_default [A.initial_state step func] r map_to_add_to in 
-						let applied = 
-							List.map (fun s -> 
-								if A.does_write step.effs s || A.is_accepting s 
-								then s 
-								else (A.transition s effect step)) result 
-						in
-						Map.add r applied map_to_add_to) map_to_add_to in
+				let apply_transition effects (map_to_add_to:(region, checker_result list) BatMap.t) = 
+					let result = List.fold_right (fun (r_e:region * e list) map -> 
+						match r_e with | r, es -> 
+							(* Find the previous result if present, then determine new checker_state. *)
+							let initial : checker_result list = [(Okay (A.initial_state step func))] in 
+							let result : A.result list = Map.find_default initial r map_to_add_to in 
+							let applied = 
+								List.map (fun (s: checker_result) -> 
+									match s with 
+									| Okay state -> 
+										if A.does_write step.effs state || A.is_accepting state
+										then s 
+										else A.transition state es step
+									| Uncertain _ -> s
+								) result 
+							in
+							Map.add r applied map) effects map_to_add_to in
 					result
 				in
 
-				(* 	Find all permutations of effects e.g. {{lock, unlock} -> {{lock, unlock}, {unlock, lock}} 
-					in order to evaluate all effect orders. *)
-				let permutations = if A.should_permute then permute input else [input] in 
 				let without_accepting_short_term_checkers = 
 					Map.filter_map (fun _ value -> 
-						let filtered = List.filter (fun state -> not (A.is_accepting state) || A.is_error state) value in
+						let filtered : checker_result list = List.filter (fun state -> 
+							let s = (extract_checker_state state) in 
+							not (A.is_accepting s) || A.is_error s) value 
+						in
 						if List.is_empty filtered then None else Some filtered)
 					map
 				in
 
-				let result = List.fold_left (fun map_to_change effects ->
-						(* 	For each effect in a given permutation, apply the transition function, 
-							and add the result to the (region, checker_state) -> [checker_state] map. 
-							
-							This expresses that a given region has multiple state machines monitoring it 
-							if multiple evaluation orders are possible for the effects of that region. *)
-						List.fold_left (fun acc effect -> apply_transition effect acc) map_to_change effects 
-					) without_accepting_short_term_checkers permutations in
+				(* 	For each effect in a given permutation, apply the transition function, 
+					and add the result to the (region, checker_state) -> [checker_state] map. *)
+				let result = apply_transition grouped without_accepting_short_term_checkers in
 
-				let are_all_error = for_all_results input result A.is_error in
-				let are_all_not_error = for_all_results input result (fun state -> not (A.is_error state)) in
+				let inline_check = Map.map (fun _ results -> 
+					match (results: checker_result) with 
+					| Okay states -> states
+					| Uncertain states -> states
+				)
+				result in 
+				(* TODO: Implement return type check and inlining in checker. *)
 
-				(* 	If some --- but not all --- states are errors then there's uncertainty about whether the given step 
-					will lead to an error. Therefore we inline in order to find out whether an error is really present. 
-					If all states are errors or all states are not errors, we just continue exploration. 
-				*)
-				if are_all_error || are_all_not_error then explore_paths func remaining result check_type
-				else 
-					let inlined_result = 
-						match inline func step with
-						| Some (_, inlined_path) 	-> explore_paths func inlined_path map Must
-						| _ 						-> result
-					in
-					explore_paths func remaining inlined_result May
+				result
 		| Assume(_, _, remaining) -> 
 			explore_paths func remaining map check_type
 		| If(true_path, false_path) -> 
@@ -180,11 +184,19 @@ module Make (A : AutomataSpec) : S = struct
 			let path_tree = paths_of global_function in
 			let results = explore_paths global_function path_tree Map.empty May in 
 			let states = Map.values results in
-			let matches = Enum.fold (fun acc m -> (List.filter A.is_error m) @ acc) [] states in
+			let matches = Enum.fold (fun acc m -> (List.filter (fun s -> A.is_error (extract_checker_state s)) m) @ acc) [] states in
 			let matches_reversed = List.rev matches in 
 			matches_reversed
 
-	let filter_results matches = A.filter_results matches
+	let filter_results (matches:checker_result list) = 
+		let filtered : checker_result list = 
+			List.filter (fun (r:checker_result) -> 
+				(match r with 
+				| Okay _ -> true 
+				| Uncertain _ -> false)) 
+			matches 
+		in
+		filtered
 
 	let stringify_results matches = 
 		let pp = List.map (fun m -> A.pp_checker_state m) matches in
