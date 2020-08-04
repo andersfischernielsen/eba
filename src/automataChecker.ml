@@ -35,7 +35,7 @@ module type AutomataSpec = sig
 	val filter_results : result list -> result list
 
 	(** Test *)
-	val transition : checker_state -> Effects.e list -> step -> result
+	val transition : result -> Effects.e list -> step -> result
 end
 
 module type S = sig
@@ -47,7 +47,8 @@ end
 
 module Make (A : AutomataSpec) : S = struct
 	type checker_result = A.result
-	type checking_type = Must | May
+	type checking = Must | May
+	type inlined = Not_Inlined | Inlined
 
 	let is_in_transition_labels effect = 
 		match effect with 
@@ -84,7 +85,7 @@ module Make (A : AutomataSpec) : S = struct
 		else
 			let gen_names ss = List.fold_right (fun s acc -> Format.sprintf "%s " (A.checker_state_to_string s) ^ acc ) ss "" in
 			Format.printf "%s\n" s;
-			BatMap.iter (fun k v -> Format.printf "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names) ) m;
+			BatMap.iter (fun k v -> Format.printf "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names)) m;
 			Format.printf "%s" "\n"
 
 	let stringify_effects effects = 
@@ -95,10 +96,16 @@ module Make (A : AutomataSpec) : S = struct
 		| Mem(_, region) -> Some (region, e)
 		| _ 			 -> None
 
-	let rec explore_paths func path map check_type = 
+	let is_uncertain_result results = 
+		List.exists 
+		(fun r -> match (r:checker_result) with | Uncertain _ -> true | Okay _ -> false) 
+		results 
+
+	let rec explore_paths func path map check_type inlined = 
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
+			(* print_map map "Reached step, map contains: "; *)
 			let input = (match check_type with
 				| May 	-> EffectSet.filter is_in_transition_labels step.effs.may
 				| Must 	-> EffectSet.filter is_in_transition_labels step.effs.must) 
@@ -111,10 +118,12 @@ module Make (A : AutomataSpec) : S = struct
 			let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions 
 				|> List.map extract_regions 
 			in
-			
+
+			(* stringify_effects input |> Format.printf "%s\n"; *)
+
 			(* Skip step if the effects are uninteresting *)
 			if List.is_empty input 
-			then explore_paths func remaining map check_type
+			then explore_paths func remaining map check_type inlined
 			else
 				let apply_transition effects (map_to_add_to:(region, checker_result list) BatMap.t) = 
 					let result = List.fold_right (fun (r_e:region * e list) map -> 
@@ -128,7 +137,7 @@ module Make (A : AutomataSpec) : S = struct
 									| Okay state -> 
 										if A.does_write step.effs state || A.is_accepting state
 										then s 
-										else A.transition state es step
+										else A.transition s es step
 									| Uncertain _ -> s
 								) result 
 							in
@@ -148,22 +157,39 @@ module Make (A : AutomataSpec) : S = struct
 
 				(* 	For each effect in a given permutation, apply the transition function, 
 					and add the result to the (region, checker_state) -> [checker_state] map. *)
-				let result = apply_transition grouped without_accepting_short_term_checkers in
+				let without_short_term = apply_transition grouped without_accepting_short_term_checkers in
 
-				let inline_check = Map.map (fun _ results -> 
-					match (results: checker_result) with 
-					| Okay states -> states
-					| Uncertain states -> states
-				)
-				result in 
-				(* TODO: Implement return type check and inlining in checker. *)
-
-				result
+				let uncertainty_check map = 
+					let inline_message = Format.printf "%s, %s.\n" in
+					match inlined with 
+					| Not_Inlined -> (
+						let is_uncertain = Map.exists (fun _ results -> is_uncertain_result results) map in
+						if not is_uncertain then map
+						else
+							let inline_result = inline func step in
+							match inline_result with 
+							| Some (_, t) -> 
+								inline_message "Performed inline" "will explore inlined tree";
+								explore_paths func t map Must Inlined 
+							| None -> 
+								inline_message "Could not inline" "will not try again";
+								map
+					)
+					(* Give up on eliminating uncertainty if we have already inlined. *)
+					| Inlined -> 
+						inline_message "Already inlined" "will not try again"; 
+						map
+				in
+				
+				let checked = uncertainty_check without_short_term in 
+				(* print_map checked "Map contains: "; *)
+				explore_paths func remaining checked check_type inlined
 		| Assume(_, _, remaining) -> 
-			explore_paths func remaining map check_type
+			explore_paths func remaining map check_type inlined
 		| If(true_path, false_path) -> 
-			let true_branch = explore_paths func true_path map check_type in
-			let false_branch = explore_paths func false_path map check_type in
+			let true_branch = explore_paths func true_path map check_type inlined in
+			let false_branch = explore_paths func false_path map check_type inlined in
+			(* Format.printf "Merging maps... %s\n" ""; *)
 			let merge = 
 				Map.merge (fun _ a b -> 
 					(match a, b with 
@@ -182,21 +208,20 @@ module Make (A : AutomataSpec) : S = struct
 		| _ ->
 			let _, global_function = Option.get(AFile.find_fun file variable_info) in
 			let path_tree = paths_of global_function in
-			let results = explore_paths global_function path_tree Map.empty May in 
-			let states = Map.values results in
-			let matches = Enum.fold (fun acc m -> (List.filter (fun s -> A.is_error (extract_checker_state s)) m) @ acc) [] states in
+			let results = explore_paths global_function path_tree Map.empty May Not_Inlined in 
+			let okay_only = results |> Map.map (fun matches -> 
+				List.filter (fun (m: checker_result) -> match m with | Okay _ -> true | Uncertain _ -> false) 
+				matches)
+			in
+			let error_only = okay_only |> Map.map (fun matches -> List.filter (fun m -> A.is_error (extract_checker_state m)) matches) in
+			let first_only = error_only |> Map.map (fun matches -> match matches with | x::_ -> [x] | [] -> []) in
+
+			let states = Map.values first_only in
+			let matches = Enum.fold (fun acc matches -> matches @ acc) [] states in
 			let matches_reversed = List.rev matches in 
 			matches_reversed
 
-	let filter_results (matches:checker_result list) = 
-		let filtered : checker_result list = 
-			List.filter (fun (r:checker_result) -> 
-				(match r with 
-				| Okay _ -> true 
-				| Uncertain _ -> false)) 
-			matches 
-		in
-		filtered
+	let filter_results matches = A.filter_results matches
 
 	let stringify_results matches = 
 		let pp = List.map (fun m -> A.pp_checker_state m) matches in

@@ -72,23 +72,24 @@ module AutomataSpec = struct
 				
 	(* TODO: Implement new state transition for lists of effects *)
     let transition previous input step = 
-		let next new_state = Okay (with_previous previous new_state step) in
-		let previous_state = previous.current_state in 
+		let previous_checker_state = (extract_state previous) in
+		let previous_state = (extract_state previous).current_state in
+		let next new_state = with_previous previous_checker_state new_state step in
 		(* pp_step step |> PP.to_string |> Format.printf "step: %s"; *)
 		match previous_state with 
 		| Unlocked ->
 			(match input with 
-			| Mem(Lock, _)::_		-> (* pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n"; *) next Locked
-			| _         			-> next previous_state
+			| Mem(Lock, _)::_		-> (* pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n"; *) Okay(next Locked)
+			| _         			-> Okay (next previous_state)
 			)
         | Locked ->
 			(match input with 
-			| Mem(Lock, _)::_		-> next previous_state
-			| Mem(Unlock, _)::_  	-> next Unlocked_final
-			| _ 					-> next previous_state
+			| Mem(Lock, _)::_		-> Okay (next previous_state)
+			| Mem(Unlock, _)::_  	-> Okay (next Unlocked_final)
+			| _ 					-> previous
 			)
-		| Unlocked_final 			-> next previous_state
-        | Error _					-> next previous_state
+		| Unlocked_final 			-> Okay (next previous_state)
+        | Error _					-> Okay (next previous_state)
 	
 	let is_accepting state = 
 		match state.current_state with 

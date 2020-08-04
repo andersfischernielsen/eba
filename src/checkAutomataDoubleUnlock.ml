@@ -43,8 +43,9 @@ module AutomataSpec = struct
 		st |> PP.to_string
 
 	let checker_state_to_string result = 
+		let certainty = match result with Uncertain _ -> "Uncertain" | Okay _ -> "Okay" in
 		let state = extract_state result in 
-		Format.sprintf "{ current_state=%s }" (state_to_string state.current_state)
+		Format.sprintf "%s { current_state=%s }" certainty (state_to_string state.current_state)
 
 	let initial_state step func = 
 		{ 
@@ -68,23 +69,32 @@ module AutomataSpec = struct
 		} in
 		new_state
 	
-	(* TODO: Implement new state transition for lists of effects *)
+	let print_es es text = 
+		Format.printf "%s from:\n" text;
+		List.iter (fun e -> pp_e e |> PP.to_string |> Format.printf "%s, ") es;
+		Format.printf "%s\n" ""
+
     let transition previous input step = 
-		let next new_state = Okay (with_previous previous new_state step) in
-		let previous_state = previous.current_state in 
+		let previous_checker_state = (extract_state previous) in
+		let previous_state = (extract_state previous).current_state in
+		let add_step_with new_state = with_previous previous_checker_state new_state step in
 		match previous_state with 
 		| Unlocked ->
 			(match input with 
-			| Mem(Lock, _)::_		-> (*pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n";*) next Locked
-			| Mem(Unlock, _)::_		-> next previous_state
-			| _         			-> next previous_state
+			| [Mem(Lock, _)]					-> (* print_es input "Unlock -> Lock"; *) Okay (add_step_with Locked)
+			| [Mem(Unlock, _) as a]				-> Okay (add_step_with (Error a))
+			| [Mem(Unlock, _); Mem(Lock, _)] 	-> Uncertain (add_step_with previous_state)
+			| [Mem(Lock, _); Mem(Unlock, _)] 	-> Uncertain (add_step_with previous_state)
+			| _         						-> previous
 			)
         | Locked ->
 			(match input with 
-			| Mem(Unlock, _)::_		-> next Unlocked
-			| _         			-> next previous_state
+			| [Mem(Unlock, _)]					-> Okay (add_step_with Unlocked)
+			| [Mem(Unlock, _); Mem(Lock, _)] 	-> Uncertain (add_step_with previous_state)
+			| [Mem(Lock, _); Mem(Unlock, _)] 	-> Uncertain (add_step_with previous_state)
+			| _         						-> previous
 			)
-        | Error _					-> next previous_state
+        | Error _								-> previous
 	
 	let is_accepting state = 
 		match state.current_state with 
@@ -92,6 +102,18 @@ module AutomataSpec = struct
 		| _ 		-> false
 
 	let is_error state = is_accepting state
+
+	let pp_checker_state (result:result) = 
+		let open PP in 
+		let state = extract_state result in 
+		let matches = List.rev state.matches in 
+		let trace = List.rev state.trace in 
+		let match_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline matches in
+		let trace_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline trace in
+		
+		brackets (!^ name) + newline + newline
+		++ words "at:" ++ match_locations + newline
+		++ words "trace:" ++ trace_locations + newline
 
 	let filter_results (results: result list) = 
 		let sorted = List.sort 
@@ -111,19 +133,8 @@ module AutomataSpec = struct
 				(r::(fst acc), union))
 		sorted ([], Set.empty) in 
 
+		(* TODO: Fix filtering issue. *)
 		fst no_duplicate_regions
-
-	let pp_checker_state (result:result) = 
-		let open PP in 
-		let state = extract_state result in 
-		let matches = List.rev state.matches in 
-		let trace = List.rev state.trace in 
-		let match_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline matches in
-		let trace_locations = List.fold_left (fun acc m -> acc ++ Utils.Location.pp m.sloc ++ words (string_of_step m) + newline) newline trace in
-		
-		brackets (!^ name) + newline + newline
-		++ words "at:" ++ match_locations + newline
-		++ words "trace:" ++ trace_locations + newline
 end
 
 module Checker = AutomataChecker.Make(AutomataSpec)
