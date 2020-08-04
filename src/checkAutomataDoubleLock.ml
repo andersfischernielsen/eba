@@ -70,26 +70,29 @@ module AutomataSpec = struct
 		} in
 		new_state
 				
-	(* TODO: Implement new state transition for lists of effects *)
-    let transition previous input step = 
+	
+	let transition previous input step = 
 		let previous_checker_state = (extract_state previous) in
 		let previous_state = (extract_state previous).current_state in
-		let next new_state = with_previous previous_checker_state new_state step in
-		(* pp_step step |> PP.to_string |> Format.printf "step: %s"; *)
+		let add_step_with new_state = with_previous previous_checker_state new_state step in
 		match previous_state with 
 		| Unlocked ->
 			(match input with 
-			| Mem(Lock, _)::_		-> (* pp_e input |> PP.to_string |> Format.printf "%s\t\t Unlocked -> Locked\n"; *) Okay(next Locked)
-			| _         			-> Okay (next previous_state)
+			| [Mem(Lock, _)]					-> (* print_es input "Unlock -> Lock"; *) Okay (add_step_with Locked)
+			| [Mem(Unlock, _); Mem(Lock, _)] 	-> Uncertain (add_step_with previous_state)
+			| [Mem(Lock, _); Mem(Unlock, _)] 	-> Uncertain (add_step_with previous_state)
+			| _         						-> previous
 			)
         | Locked ->
 			(match input with 
-			| Mem(Lock, _)::_		-> Okay (next previous_state)
-			| Mem(Unlock, _)::_  	-> Okay (next Unlocked_final)
-			| _ 					-> previous
+			| [Mem(Lock, _) as a]				-> Okay (add_step_with (Error a))
+			| [Mem(Unlock, _)]					-> Okay (add_step_with Unlocked_final)
+			| [Mem(Unlock, _); Mem(Lock, _)] 	-> Uncertain (add_step_with previous_state)
+			| [Mem(Lock, _); Mem(Unlock, _)] 	-> Uncertain (add_step_with previous_state)
+			| _         						-> previous
 			)
-		| Unlocked_final 			-> Okay (next previous_state)
-        | Error _					-> Okay (next previous_state)
+		| Unlocked_final 						-> previous
+		| Error _								-> previous
 	
 	let is_accepting state = 
 		match state.current_state with 
