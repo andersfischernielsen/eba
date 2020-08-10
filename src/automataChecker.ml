@@ -7,6 +7,7 @@ open Abs
 open PathTree
 open Effects
 open PathTree
+open Dolog
 
 module type AutomataSpec = sig
 	(** A name to identify the checker *)
@@ -160,7 +161,6 @@ module Make (A : AutomataSpec) : S = struct
 				let without_short_term = apply_transition grouped without_accepting_short_term_checkers in
 
 				let uncertainty_check map = 
-					let inline_message = Format.printf "%s, %s.\n" in
 					match inlined with 
 					| Not_Inlined -> (
 						let is_uncertain = Map.exists (fun _ results -> is_uncertain_result results) map in
@@ -169,15 +169,15 @@ module Make (A : AutomataSpec) : S = struct
 							let inline_result = inline func step in
 							match inline_result with 
 							| Some (_, t) -> 
-								inline_message "Performed inline" "will explore inlined tree";
+								Log.info "Performed inline, will explore inlined tree";
 								explore_paths func t map Must Inlined 
 							| None -> 
-								inline_message "Could not inline" "will not try again";
+								Log.info "Could not inline, will not try again";
 								map
 					)
 					(* Give up on eliminating uncertainty if we have already inlined. *)
 					| Inlined -> 
-						inline_message "Already inlined" "will not try again"; 
+						Log.info "Already inlined, will not try again"; 
 						map
 				in
 				

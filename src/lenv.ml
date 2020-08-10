@@ -424,19 +424,21 @@ and subst_offset amap : offset -> offset option = function
 		Some (Index(e',os'))
 
 let propagate fna formals actuals lenv : t =
-	let amap = List.combine actuals formals in
-	(* if e -> x, learn about `x' by evaluating `e' *)
-	let lenv1 = List.fold_left (fun l (e,x) ->
-			match Dom.to_option (eval_exp l e) with
-			| None   -> l
-			| Some b -> gen fna l (Lval(Cil.var x)) b
-		) empty amap
-	in
-	(* if e -> x, try substituting `e' with `x' in previously known facts *)
-	let lenv2 = ExpMap.fold (fun e v l ->
-			match subst amap e with
-			| Some e' -> gen fna l e' v
-			| None    -> l
-		) lenv.facts lenv1
-	in
-	lenv2
+	if not (List.length actuals = List.length formals) then lenv
+	else 
+		let amap = List.combine actuals formals in
+		(* if e -> x, learn about `x' by evaluating `e' *)
+		let lenv1 = List.fold_left (fun l (e,x) ->
+				match Dom.to_option (eval_exp l e) with
+				| None   -> l
+				| Some b -> gen fna l (Lval(Cil.var x)) b
+			) empty amap
+		in
+		(* if e -> x, try substituting `e' with `x' in previously known facts *)
+		let lenv2 = ExpMap.fold (fun e v l ->
+				match subst amap e with
+				| Some e' -> gen fna l e' v
+				| None    -> l
+			) lenv.facts lenv1
+		in
+		lenv2
