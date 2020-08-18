@@ -82,12 +82,11 @@ module Make (A : AutomataSpec) : S = struct
 		| Uncertain s -> s
 
 	let print_map m s = 
-		if Map.is_empty m then Format.printf "%s %s" s "Empty\n"
+		if Map.is_empty m then Log.info "%s %s" s "Empty\n"
 		else
 			let gen_names ss = List.fold_right (fun s acc -> Format.sprintf "%s " (A.checker_state_to_string s) ^ acc ) ss "" in
-			Format.printf "%s\n" s;
-			BatMap.iter (fun k v -> Format.printf "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names)) m;
-			Format.printf "%s" "\n"
+			Log.info "%s\n" s;
+			BatMap.iter (fun k v -> Log.info "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names)) m
 
 	let stringify_effects effects = 
 		List.fold_right (fun e acc -> Format.sprintf "%s %s " (pp_e e |> PP.to_string) acc) effects ""
@@ -120,7 +119,9 @@ module Make (A : AutomataSpec) : S = struct
 				|> List.map extract_regions 
 			in
 
-			(* stringify_effects input |> Format.printf "%s\n"; *)
+			(match inlined with 
+			| Inlined when not (List.is_empty input) -> Log.info "Inlined effects are %s" (stringify_effects input);
+			| _ -> ());
 
 			(* Skip step if the effects are uninteresting *)
 			if List.is_empty input 
@@ -163,7 +164,11 @@ module Make (A : AutomataSpec) : S = struct
 				let uncertainty_check map = 
 					match inlined with 
 					| Not_Inlined -> (
-						let is_uncertain = Map.exists (fun _ results -> is_uncertain_result results) map in
+						let is_uncertain = Map.exists (fun r results -> 
+							List.exists (fun t -> Region.compare (fst t) r = 0) grouped 
+							&& is_uncertain_result results) 
+							map 
+						in
 						if not is_uncertain then map
 						else
 							let inline_result = inline func step in
