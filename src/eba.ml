@@ -14,6 +14,7 @@ type checks = {
 	; chk_birq   					: bool
 	; chk_automata_double_unlock   	: bool
 	; chk_automata_double_lock   	: bool
+	; chk_automata_uaf   			: bool
 }
 
 let run_checks checks file fileAbs :unit =
@@ -65,6 +66,14 @@ let run_checks checks file fileAbs :unit =
 		|> CheckAutomataDoubleLock.filter_results 
 		|> CheckAutomataDoubleLock.stringify_results
 		|> L.of_list 
+		|> print_bugs;
+	if checks.chk_automata_uaf
+	then 
+		List.map (fun fd -> CheckAutomataUseAfterFree.check fileAbs fd (Opts.Get.no_static())) fds
+		|> List.flatten 
+		|> CheckAutomataUseAfterFree.filter_results 
+		|> CheckAutomataUseAfterFree.stringify_results
+		|> L.of_list 
 		|> print_bugs
 
 let infer_file checks fn =
@@ -100,7 +109,7 @@ let infer_files verbosity
 		flag_no_dce flag_no_dfe flag_safe_casts flag_externs_do_nothing
 		opt_inline_limit opt_loop_limit opt_branch_limit flag_no_path_check
 		flag_all_lock_types flag_no_match_lock_exp flag_ignore_writes
-		chk_uninit chk_dlock chk_uaf chk_birq chk_automata_double_unlock chk_automata_double_lock
+		chk_uninit chk_dlock chk_uaf chk_birq chk_automata_double_unlock chk_automata_double_lock chk_automata_uaf
 		files =
 	(* CIL: do not print #line directives. *)
 	Cil.lineDirectiveStyle := None;
@@ -121,7 +130,7 @@ let infer_files verbosity
 	Opts.Set.all_lock_types flag_all_lock_types;
 	Opts.Set.match_lock_exp (not flag_no_match_lock_exp);
 	Opts.Set.ignore_writes flag_ignore_writes;
-	let checks = { chk_uninit; chk_dlock; chk_uaf; chk_birq; chk_automata_double_unlock; chk_automata_double_lock } in
+	let checks = { chk_uninit; chk_dlock; chk_uaf; chk_birq; chk_automata_double_unlock; chk_automata_double_lock; chk_automata_uaf } in
 	Axioms.load_axioms();
 	if flag_fake_gcc
 	then infer_file_gcc checks files
@@ -234,6 +243,10 @@ let check_uaf =
 	let doc = "Check for use-after-free" in
 	Arg.(value & flag & info ["F"; "uaf"] ~doc)
 
+let check_automata_uaf =
+	let doc = "Check for use-after-free using automata" in
+	Arg.(value & flag & info ["Fa"; "uafaut"] ~doc)
+
 let check_birq =
 	let doc = "Check for BH-enabling while IRQs are off" in
 	Arg.(value & flag & info ["B"; "bh-irq"] ~doc)
@@ -255,7 +268,7 @@ let cmd =
 		$ flag_no_dce $ flag_no_dfe $ flag_safe_casts $ flag_externs_do_nothing
 		$ opt_inline_limit $ opt_loop_limit $ opt_branch_limit $ flag_no_path_check
 		$ flag_all_lock_types $ flag_no_match_lock_exp $ flag_ignore_writes
-		$ check_uninit $ check_dlock $ check_uaf $ check_birq $ check_automata_double_unlock $ check_automata_double_lock
+		$ check_uninit $ check_dlock $ check_uaf $ check_birq $ check_automata_double_unlock $ check_automata_double_lock $ check_automata_uaf
 		$ files),
 	Term.info "eba" ~version:"0.1" ~doc ~man
 
