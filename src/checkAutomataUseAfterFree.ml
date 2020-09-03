@@ -71,7 +71,7 @@ module AutomataSpec = struct
 	
 	let print_es es step text = 
 		Log.info "%s at %s from:" text (Utils.Location.pp step.sloc |> PP.to_string);
-		List.iter (fun e -> pp_e e |> PP.to_string |> Log.info "%s, ") es
+		List.iter (fun e -> pp_e e |> PP.to_string |> Log.debug "%s, ") es
 
 	let transition previous input step = 
 		let previous_checker_state = (extract_state previous) in
@@ -79,23 +79,31 @@ module AutomataSpec = struct
 		let add_step_with new_state = with_previous previous_checker_state new_state step in
 		match previous_state with 
 		| Allocated ->
-			(match input with 
-			| [Mem(Free, _)]					-> print_es input step "Allocated -> Freed"; Okay (add_step_with Freed)
-			| [Mem(Free, _); Mem(Read, _)] 		-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [Mem(Read, _); Mem(Free, _)] 		-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [Mem(Free, _); Mem(Alloc, _)] 	-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [Mem(Alloc, _); Mem(Free, _)] 	-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with previous_state)
-			| _         						-> previous
+			(match input with
+			| [Mem(Free, _)]				-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
+			(* 
+			| [Mem(Free, _); Mem(Read, _)]	-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
+			| [Mem(Read, _); Mem(Free, _)]	-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
+			| [Mem(Free, _); _]				-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
+			| [Mem(Free, _); _; _]			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
+			| [_; Mem(Free, _)] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
+			| [_; Mem(Free, _); _] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
+			| [_; _; Mem(Free, _)] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed) 
+			*)
+			| _								-> previous
 			)
         | Freed ->
-			(match input with 
-			| [Mem(Read, _) as a]				-> print_es input step "Freed -> Error"; Okay (add_step_with (Error a))
-			| [Mem(Alloc, _)]					-> print_es input step "Freed -> Allocated"; Okay (add_step_with Allocated)
-			| [Mem(Read, _); Mem(Alloc, _)] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [Mem(Alloc, _); Mem(Read, _)] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| _         						-> previous
+			(match input with
+			| [Mem(Read, _) as a]	-> print_es input step "Freed -> Error"; Okay (add_step_with (Error a))
+			| [Mem(Alloc, _)]		-> print_es input step "Freed -> Allocated"; Okay (add_step_with Allocated)
+			(* | [Mem(Read, _); _] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
+			| [_; Mem(Read, _)] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
+			| [_; Mem(Read, _); _] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
+			| [Mem(Read, _); _; _]	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
+			| [_; _; Mem(Read, _)]	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state) *)
+			| _         			-> previous
 			)
-		| Error _								-> previous
+		| Error _					-> previous
 	
 
 	let is_error state = 

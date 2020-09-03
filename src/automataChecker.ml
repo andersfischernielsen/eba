@@ -81,12 +81,12 @@ module Make (A : AutomataSpec) : S = struct
 		| Okay s -> s
 		| Uncertain s -> s
 
-	let print_map m s = 
-		if Map.is_empty m then Log.info "%s %s" s "Empty\n"
+	let print_map m step string = 
+		if Map.is_empty m then Log.debug "Reached %s %s %s" (Utils.Location.pp step.sloc |> PP.to_string) string "Empty"
 		else
 			let gen_names ss = List.fold_right (fun s acc -> Format.sprintf "%s " (A.checker_state_to_string s) ^ acc ) ss "" in
-			Log.info "%s\n" s;
-			BatMap.iter (fun k v -> Log.info "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names)) m
+			Log.info "Reached %s %s" (Utils.Location.pp step.sloc |> PP.to_string) string;
+			BatMap.iter (fun k v -> Log.debug "%s: %s" (Region.pp k |> PP.to_string) (v |> gen_names)) m
 
 	let stringify_effects effects = 
 		List.fold_right (fun e acc -> Format.sprintf "%s %s " (pp_e e |> PP.to_string) acc) effects ""
@@ -105,7 +105,7 @@ module Make (A : AutomataSpec) : S = struct
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
-			(* print_map map "Reached step, map contains: "; *)
+			print_map map step "map contains: ";
 			let input = (match check_type with
 				| May 	-> EffectSet.filter is_in_transition_labels step.effs.may
 				| Must 	-> EffectSet.filter is_in_transition_labels step.effs.must) 
@@ -120,7 +120,7 @@ module Make (A : AutomataSpec) : S = struct
 			in
 
 			(match inlined with 
-			| Inlined when not (List.is_empty input) -> Log.info "Inlined effects are %s" (stringify_effects input);
+			| Inlined when not (List.is_empty input) -> Log.debug "Inlined effects are %s" (stringify_effects input);
 			| _ -> ());
 
 			(* Skip step if the effects are uninteresting *)
