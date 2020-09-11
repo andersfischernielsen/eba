@@ -4,6 +4,8 @@ type copts = {
 	mutable gc_stats : bool;
 	mutable save_abs : bool;
 	mutable warn_output : bool;
+	mutable no_static : bool;
+	mutable print_cfg : bool;
 	(* Type inferrer *)
 	mutable dce : bool;
 	mutable dfe : bool;
@@ -28,6 +30,8 @@ let opts : copts = {
 	gc_stats = false;
 	save_abs = false;
 	warn_output = false;
+	print_cfg = false;
+	no_static = false;
 
 	dce = true;
 	dfe = true;
@@ -54,6 +58,10 @@ struct
 	let gc_stats v = opts.gc_stats <- v
 
 	let save_abs v = opts.save_abs <- v
+
+	let no_static v = opts.no_static <- v
+	
+	let print_cfg v = opts.print_cfg <- v
 
 	let warn_output v = opts.warn_output <- v
 
@@ -89,6 +97,10 @@ struct
 	let gc_stats () = opts.gc_stats
 
 	let save_abs () = opts.save_abs
+
+	let no_static () = opts.no_static
+
+	let print_cfg () = opts.print_cfg
 
 	let warn_output () = opts.warn_output
 

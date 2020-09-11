@@ -49,23 +49,11 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckUAF.in_func;
 		if checks.chk_dlock
 		then run_check_fun fd CheckDLockFlow2.in_func;
-		if checks.chk_dfree
-		then run_check_fun fd CheckDFreeFlow2.in_func;
-		if checks.chk_dunlock
-		then run_check_fun fd CheckDUnlockFlow2.in_func;
-		if checks.chk_dunlock_inv
-		then run_check_fun fd CheckDUnlockFlow2Inverse.in_func;
 		if checks.chk_birq
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
 	);
-	if checks.chk_automata_double_unlock
-	then 
-		List.map (fun fd -> CheckAutomataDoubleUnlock.check fileAbs fd) fds
-		|> List.flatten 
-		|> CheckAutomataDoubleUnlock.filter_results 
-		|> CheckAutomataDoubleUnlock.stringify_results
-		|> L.of_list 
-		|> print_bugs
+	if Opts.Get.print_cfg() then
+		List.iter (fun fd -> CfgPrinter.print fileAbs fd) fds
 
 let infer_file checks fn =
 	let file = Frontc.parse fn () in
@@ -96,7 +84,7 @@ let log_level_of_int = function
 	| _ -> Log.DEBUG (* x >= 3 *)
 
 let infer_files verbosity
-		flag_gcstats flag_saveabs flag_warn_output flag_fake_gcc
+		flag_gcstats flag_saveabs flag_warn_output flag_fake_gcc flag_no_static flag_print_cfg
 		flag_no_dce flag_no_dfe flag_safe_casts flag_externs_do_nothing
 		opt_inline_limit opt_loop_limit opt_branch_limit flag_no_path_check
 		flag_all_lock_types flag_no_match_lock_exp flag_ignore_writes
@@ -108,6 +96,8 @@ let infer_files verbosity
 	Log.set_log_level (log_level_of_int verbosity);
 	Opts.Set.gc_stats flag_gcstats;
 	Opts.Set.save_abs flag_saveabs;
+	Opts.Set.no_static flag_no_static;
+	Opts.Set.print_cfg flag_print_cfg;
 	Opts.Set.warn_output flag_warn_output;
 	Opts.Set.dce (not flag_no_dce);
 	Opts.Set.dfe (not flag_no_dfe);
@@ -153,6 +143,14 @@ let flag_warn_output =
 let flag_fake_gcc =
 	let doc = "Fake GCC and preprocess input file." in
 	Arg.(value & flag & info ["fake-gcc"] ~doc)
+
+let flag_no_static =
+	let doc = "Explore non-static functions only." in
+	Arg.(value & flag & info ["no-static"] ~doc)
+
+let flag_print_cfg =
+	let doc = "Print the CFG with effects." in
+	Arg.(value & flag & info ["print-cfg"] ~doc)
 
 (* Type inferrer*)
 
@@ -254,7 +252,7 @@ let cmd =
 	] in
 	Term.(pure infer_files
 		$ verbose
-		$ flag_gcstats $ flag_saveabs $ flag_warn_output $ flag_fake_gcc
+		$ flag_gcstats $ flag_saveabs $ flag_warn_output $ flag_fake_gcc $ flag_no_static $ flag_print_cfg
 		$ flag_no_dce $ flag_no_dfe $ flag_safe_casts $ flag_externs_do_nothing
 		$ opt_inline_limit $ opt_loop_limit $ opt_branch_limit $ flag_no_path_check
 		$ flag_all_lock_types $ flag_no_match_lock_exp $ flag_ignore_writes
