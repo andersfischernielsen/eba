@@ -53,7 +53,7 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
 	);
 	if Opts.Get.print_cfg() then
-		List.iter (fun fd -> CfgPrinter.print fileAbs fd) fds
+		List.iter (fun fd -> CfgPrinterDoubleLock.print fileAbs fd) fds
 
 let infer_file checks fn =
 	let file = Frontc.parse fn () in
@@ -150,7 +150,7 @@ let flag_no_static =
 
 let flag_print_cfg =
 	let doc = "Print the CFG with effects." in
-	Arg.(value & flag & info ["print-cfg"] ~doc)
+	Arg.(value & flag & info ["print-double-lock-cfg"] ~doc)
 
 (* Type inferrer*)
 
