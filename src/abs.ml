@@ -49,6 +49,8 @@ module rec AFile : sig
 
 	val fprint : unit IO.output -> t -> unit
 
+	val global_variables_and_regions : t -> (Cil.varinfo, Regions.t) BatMap.t
+
 end = struct
 
 	module VarMap = Hashtbl.Make(Utils.Varinfo)
@@ -171,6 +173,14 @@ end = struct
 	let print = fprint stdout
 
 	let eprint = fprint stderr
+
+	let global_variables_and_regions t = 
+		VarMap.fold (fun varinfo entry acc ->
+			match entry with
+			| Var(sch, _) ->
+				Map.add varinfo Regions.(Scheme.regions_in sch) acc
+			| Fun _       -> acc
+		) t Map.empty
 
 end
 

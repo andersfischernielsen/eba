@@ -17,27 +17,41 @@ module Spec: PrinterSpec = struct
 		match effect with 
 		| Mem(kind, _) -> List.mem kind transition_labels
 		| _ -> false 
-    let transition previous input = 
-		match previous with
+
+    let transition current input = 
+		match current with
 		| Initial ->
 			(match input with 
+			| [Mem(Lock, _)]		-> Locked
 			| [Mem(Lock, _); _]		-> Locked
 			| [_; Mem(Lock, _)] 	-> Locked
-			| _         		    -> previous
+			| _         		    -> current
 			)
         | Locked ->
 			(match input with 
+			| [Mem(Unlock, _)]		-> Unlocked
 			| [_; Mem(Unlock, _)]	-> Unlocked
 			| [Mem(Unlock, _); _]	-> Unlocked
-			| _         			-> previous
+			| _         			-> current
 			)
         | Unlocked 					-> Initial
 
-    let should_stop_printing state = 
+    let is_in_interesting_section state = 
+		match state with 
+        | Locked 	-> true
+        | Unlocked 	-> true
+		| Initial 	-> false
+
+	let is_in_final_state state = 
 		match state with 
         | Unlocked 	-> true
-        | _ 		-> false
+		| _ 		-> false
 
+	let string_of_state state s = 
+		match state with 
+		| Locked 	-> Format.sprintf "%s: Locked" s 
+		| Unlocked 	-> Format.sprintf "%s: Unlocked" s 
+		| _ 		-> ""
 end 
 
 module Printer = Make(Spec)
