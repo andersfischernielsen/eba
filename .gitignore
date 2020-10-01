@@ -9,4 +9,4 @@ _tmp/
 
 src/.merlin
 .DS_Store
-.vscode
+.vscode/

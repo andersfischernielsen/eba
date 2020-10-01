@@ -67,6 +67,8 @@ module Get : sig
 	
 	val match_unlock_exp : unit -> bool
 
+	val match_free_exp : unit -> bool
+
 	val ignore_writes : unit -> bool
 
 end

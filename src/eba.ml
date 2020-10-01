@@ -239,6 +239,10 @@ let check_automata_double_lock =
 	let doc = "Check for double locking using automata" in
 	Arg.(value & flag & info ["La"; "dlockaut"] ~doc)
 
+let check_automata_double_unlock =
+	let doc = "Check for double unlocking using automata" in
+	Arg.(value & flag & info ["dUa"; "dunlockaut"] ~doc)
+
 let check_uaf =
 	let doc = "Check for use-after-free" in
 	Arg.(value & flag & info ["F"; "uaf"] ~doc)
