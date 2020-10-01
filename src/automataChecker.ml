@@ -138,11 +138,11 @@ module Make (A : AutomataSpec) : S = struct
 							This expresses that a given region has multiple state machines monitoring it 
 							if multiple evaluation orders are possible for the effects of that region. *)
 						List.fold_left (fun acc effect -> apply_transition effect acc) map_to_change effects 
-					) without_accepting_short_term_checkers permutations in
+					) map permutations in
 
-				let are_all_error = for_all_results input result A.is_error in
-				let are_all_not_error = for_all_results input result (fun state -> not (A.is_error state)) in
-
+				let are_all_error = for_all_results input result A.is_accepting in
+				let are_all_not_error = for_all_results input result (fun state -> not (A.is_accepting state)) in
+				
 				(* 	If some --- but not all --- states are errors then there's uncertainty about whether the given step 
 					will lead to an error. Therefore we inline in order to find out whether an error is really present. 
 					If all states are errors or all states are not errors, we just continue exploration. 
@@ -154,7 +154,7 @@ module Make (A : AutomataSpec) : S = struct
 						| Some (_, inlined_path) 	-> explore_paths func inlined_path map Must
 						| _ 						-> result
 					in
-					explore_paths func remaining inlined_result May
+					explore_paths func remaining inlined_result check_type
 		| Assume(_, _, remaining) -> 
 			explore_paths func remaining map check_type
 		| If(true_path, false_path) -> 
