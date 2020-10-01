@@ -1,5 +1,7 @@
 # EBA: An effective bug finder for C
 
+*Note:* This is the development branch for the EBA bug finder. This is a work in progress with bleeding edge feature branches. Things might break. 
+
 EBA is a bug finder for C based on side-effect analysis and model-checking.
 
 For now, you can use it to find double-lock and double-unlock bugs in the Linux kernel, by:
