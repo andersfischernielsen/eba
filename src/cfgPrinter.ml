@@ -20,7 +20,7 @@ module type PrinterSpec = sig
 end
 
 module type Printer = sig
-	val print : AFile.t -> Cil.fundec -> unit
+	val print : AFile.t -> Cil.fundec -> int -> unit
 end
 
 module Make(P: PrinterSpec) : Printer = struct
@@ -41,7 +41,7 @@ module Make(P: PrinterSpec) : Printer = struct
 
 	let generate_state_region_string region state = P.string_of_state state (Region.pp region |> PP.to_string)
 
-    let rec explore_paths path map var_region_map = 
+    let rec explore_paths path func map var_region_map inline_limit = 
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
@@ -55,6 +55,25 @@ module Make(P: PrinterSpec) : Printer = struct
 							Map.add r applied map) effects map_to_add_to in
 					result
 				in
+
+			let call_present = find_in_stmt (fun is -> 
+				if List.exists (fun i -> 
+					match i with 
+					| Cil.(Call _) -> true 
+					| _ -> false) is 
+				then Some(true) 
+				else None)
+				step 
+			in
+
+			if Option.is_some call_present 
+			then 
+				let inlined = inline func step in
+				
+				match inlined with 
+				| Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
+				| _ -> ()
+			else
 
 			let input = step.effs.may |> EffectSet.to_list in
 			let region_options = List.map get_region input in
@@ -81,15 +100,15 @@ module Make(P: PrinterSpec) : Printer = struct
 			Printf.fprintf IO.stdout "\n\n";
 			
 			let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
-			explore_paths remaining without_monitors_in_final_states var_region_map
+			explore_paths remaining func without_monitors_in_final_states var_region_map inline_limit
 		| Assume(_, _, remaining) -> 
-			explore_paths remaining map var_region_map
+			explore_paths remaining func map var_region_map inline_limit
 		| If(true_path, false_path) -> 
-			explore_paths true_path map var_region_map;
-            explore_paths false_path map var_region_map
+			explore_paths true_path func map var_region_map inline_limit;
+            explore_paths false_path func map var_region_map inline_limit
 		| Nil -> ()
 
-	let print file declaration =
+	let print file declaration inline_limit =
 		let variable_info = Cil.(declaration.svar) in
         let _, global_function = Option.get(AFile.find_fun file variable_info) in
 		Printf.fprintf IO.stdout "%s:%s:%i:\n" variable_info.vdecl.file variable_info.vname  variable_info.vdecl.line;
@@ -108,5 +127,5 @@ module Make(P: PrinterSpec) : Printer = struct
 			added
 			) var_region_map in
 		let var_region_map = Map.filter (fun k _ -> k != -1) var_region_map in
-        explore_paths path_tree Map.empty var_region_map
+        explore_paths path_tree global_function Map.empty var_region_map inline_limit
 end

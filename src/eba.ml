@@ -53,7 +53,7 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
 	);
 	if Opts.Get.print_cfg() then
-		List.iter (fun fd -> CfgPrinterDoubleLock.print fileAbs fd) fds
+		List.iter (fun fd -> CfgPrinterDoubleLock.print fileAbs fd (Opts.Get.inline_limit())) fds
 
 let infer_file checks fn =
 	let file = Frontc.parse fn () in
