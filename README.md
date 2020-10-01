@@ -24,7 +24,7 @@ Yes, it really does, check the website for more info: [http://www.iagoabal.eu/eb
 
 ## Installation
 
-See the [Installation instructions](INSTALL.md).
+See the [installation instructions](INSTALL.md).
 
 ## Running the tests
 
