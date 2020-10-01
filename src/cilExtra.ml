@@ -36,6 +36,13 @@ let pick_first_arg instr : exp option =
 	let open Option.Infix in
 	args_of_call instr >>= List.Exceptionless.hd
 
+let arg_is_linux_free e :bool =
+	match unrollTypeDeep (typeOf e) with
+	| TPtr (TComp(ci,_),_)
+		(* when not (ci.cname = "" || ci.cname = "" || ci.cname = "") *)
+		-> Printf.printf "arg_is_linux_free has not been implemented for type: %s\n" (Cil.compFullName ci); false
+	| _ -> false
+
 let arg_is_linux_lock e :bool =
 	match unrollTypeDeep (typeOf e) with
 	| TPtr (TComp(ci,_),_)
@@ -50,6 +57,10 @@ let find_arg_in_call pick instrs : exp option =
 let find_linux_lock_in_call : instr list -> exp option =
 	let open Utils.Option in
 	find_arg_in_call (pick_arg_that arg_is_linux_lock <|> pick_first_arg)
+
+let find_linux_free_in_call : instr list -> exp option =
+	let open Utils.Option in
+	find_arg_in_call (pick_arg_that arg_is_linux_free <|> pick_first_arg)
 
 (* THINK: Some of the functions below would not be needed if our front-end, CIL,
  * would keep more information about loops; and if EBA would not rely on
