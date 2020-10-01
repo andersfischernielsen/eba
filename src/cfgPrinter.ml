@@ -66,15 +66,16 @@ module Make(P: PrinterSpec) : Printer = struct
 				step 
 			in
 
-			if Option.is_some call_present 
+			if Option.is_some call_present && inline_limit > 0
 			then 
 				let inlined = inline func step in
-				
+
 				match inlined with 
 				| Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
 				| _ -> ()
 			else
 
+			Printf.fprintf IO.stdout "";
 			let input = step.effs.may |> EffectSet.to_list in
 			let region_options = List.map get_region input in
 			let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in 
