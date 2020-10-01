@@ -120,6 +120,8 @@ struct
 
 	let match_unlock_exp () = opts.match_unlock_exp
 
+	let match_free_exp () = opts.match_free_exp
+
 	let ignore_writes () = opts.ignore_writes
 
 end
