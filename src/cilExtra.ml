@@ -36,18 +36,18 @@ let pick_first_arg instr : exp option =
 	let open Option.Infix in
 	args_of_call instr >>= List.Exceptionless.hd
 
-let arg_is_linux_lock e :bool =
-	match unrollTypeDeep (typeOf e) with
-	| TPtr (TComp(ci,_),_)
-	(* THINK: more? *)
-	| TPtr(TComp(ci, _), _) -> if ci.cname = "spinlock" || ci.cname = "mutex" then true else false
-	| _ -> false
-
 let arg_is_linux_free e :bool =
 	match unrollTypeDeep (typeOf e) with
 	| TPtr (TComp(ci,_),_)
 		(* when not (ci.cname = "" || ci.cname = "" || ci.cname = "") *)
 		-> Printf.printf "arg_is_linux_free has not been implemented for type: %s\n" (Cil.compFullName ci); false
+	| _ -> false
+
+let arg_is_linux_lock e :bool =
+	match unrollTypeDeep (typeOf e) with
+	| TPtr (TComp(ci,_),_)
+	(* THINK: more? *)
+	| TPtr(TComp(ci, _), _) -> if ci.cname = "spinlock" || ci.cname = "mutex" then true else false
 	| _ -> false
 
 let find_arg_in_call pick instrs : exp option =

@@ -76,9 +76,9 @@ end = struct
 		| Some(Fun _)       ->
 			Log.warn "File.find_var: not a variable: %s" Cil.(x.vname);
 			None
-		| Some(Var (sch,_)) ->
-			assert (QV.is_empty Scheme.(sch.vars));
+		| Some(Var (sch,_)) when QV.is_empty Scheme.(sch.vars) ->
 			Some Scheme.(sch.body)
+		| _ -> None
 
 	let has_fun tbl fn =
 		match VarMap.Exceptionless.find tbl fn with

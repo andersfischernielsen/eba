@@ -8,14 +8,13 @@ open Abs
 module L = LazyList
 
 type checks = {
-	  chk_uninit 	: bool
-	; chk_dlock  	: bool
-	; chk_dfree  	: bool
-	; chk_dunlock  	: bool
-	; chk_dunlock_inv  	: bool
-	; chk_uaf    	: bool
-	; chk_birq   	: bool
-	; chk_automata_double_unlock : bool
+	  chk_uninit 					: bool
+	; chk_dlock  					: bool
+	; chk_uaf    					: bool
+	; chk_birq   					: bool
+	; chk_automata_double_unlock   	: bool
+	; chk_automata_double_lock   	: bool
+	; chk_automata_uaf   			: bool
 }
 
 let run_checks checks file fileAbs :unit =
@@ -49,21 +48,31 @@ let run_checks checks file fileAbs :unit =
 		then run_check_fun fd CheckUAF.in_func;
 		if checks.chk_dlock
 		then run_check_fun fd CheckDLockFlow2.in_func;
-		if checks.chk_dfree
-		then run_check_fun fd CheckDFreeFlow2.in_func;
-		if checks.chk_dunlock
-		then run_check_fun fd CheckDUnlockFlow2.in_func;
-		if checks.chk_dunlock_inv
-		then run_check_fun fd CheckDUnlockFlow2Inverse.in_func;
 		if checks.chk_birq
 		then run_check_fun fd CheckBhOnIrqFlow2.in_func;
 	);
 	if checks.chk_automata_double_unlock
 	then 
-		List.map (fun fd -> CheckAutomataDoubleUnlock.check fileAbs fd) fds
+		List.map (fun fd -> CheckAutomataDoubleUnlock.check fileAbs fd (Opts.Get.no_static())) fds
 		|> List.flatten 
 		|> CheckAutomataDoubleUnlock.filter_results 
 		|> CheckAutomataDoubleUnlock.stringify_results
+		|> L.of_list 
+		|> print_bugs;
+	if checks.chk_automata_double_lock
+	then 
+		List.map (fun fd -> CheckAutomataDoubleLock.check fileAbs fd (Opts.Get.no_static())) fds
+		|> List.flatten 
+		|> CheckAutomataDoubleLock.filter_results 
+		|> CheckAutomataDoubleLock.stringify_results
+		|> L.of_list 
+		|> print_bugs;
+	if checks.chk_automata_uaf
+	then 
+		List.map (fun fd -> CheckAutomataUseAfterFree.check fileAbs fd (Opts.Get.no_static())) fds
+		|> List.flatten 
+		|> CheckAutomataUseAfterFree.filter_results 
+		|> CheckAutomataUseAfterFree.stringify_results
 		|> L.of_list 
 		|> print_bugs
 
@@ -96,11 +105,11 @@ let log_level_of_int = function
 	| _ -> Log.DEBUG (* x >= 3 *)
 
 let infer_files verbosity
-		flag_gcstats flag_saveabs flag_warn_output flag_fake_gcc
+		flag_gcstats flag_saveabs flag_warn_output flag_fake_gcc flag_no_static
 		flag_no_dce flag_no_dfe flag_safe_casts flag_externs_do_nothing
 		opt_inline_limit opt_loop_limit opt_branch_limit flag_no_path_check
 		flag_all_lock_types flag_no_match_lock_exp flag_ignore_writes
-		chk_uninit chk_dlock chk_dunlock chk_dunlock_inv chk_uaf chk_dfree chk_birq chk_automata_double_unlock
+		chk_uninit chk_dlock chk_uaf chk_birq chk_automata_double_unlock chk_automata_double_lock chk_automata_uaf
 		files =
 	(* CIL: do not print #line directives. *)
 	Cil.lineDirectiveStyle := None;
@@ -108,6 +117,7 @@ let infer_files verbosity
 	Log.set_log_level (log_level_of_int verbosity);
 	Opts.Set.gc_stats flag_gcstats;
 	Opts.Set.save_abs flag_saveabs;
+	Opts.Set.no_static flag_no_static;
 	Opts.Set.warn_output flag_warn_output;
 	Opts.Set.dce (not flag_no_dce);
 	Opts.Set.dfe (not flag_no_dfe);
@@ -120,7 +130,7 @@ let infer_files verbosity
 	Opts.Set.all_lock_types flag_all_lock_types;
 	Opts.Set.match_lock_exp (not flag_no_match_lock_exp);
 	Opts.Set.ignore_writes flag_ignore_writes;
-	let checks = { chk_uninit; chk_dlock; chk_dunlock; chk_dfree; chk_dunlock_inv; chk_uaf; chk_birq; chk_automata_double_unlock } in
+	let checks = { chk_uninit; chk_dlock; chk_uaf; chk_birq; chk_automata_double_unlock; chk_automata_double_lock; chk_automata_uaf } in
 	Axioms.load_axioms();
 	if flag_fake_gcc
 	then infer_file_gcc checks files
@@ -153,6 +163,10 @@ let flag_warn_output =
 let flag_fake_gcc =
 	let doc = "Fake GCC and preprocess input file." in
 	Arg.(value & flag & info ["fake-gcc"] ~doc)
+
+let flag_no_static =
+	let doc = "Explore non-static functions only." in
+	Arg.(value & flag & info ["no-static"] ~doc)
 
 (* Type inferrer*)
 
@@ -217,17 +231,13 @@ let check_dlock =
 	let doc = "Check for double locking" in
 	Arg.(value & flag & info ["L"; "dlock"] ~doc)
 
-let check_dfree =
-	let doc = "Check for double freeing" in
-	Arg.(value & flag & info ["dF"; "dfree"] ~doc)
+let check_automata_double_unlock =
+	let doc = "Check for double unlocking using automata" in
+	Arg.(value & flag & info ["dUa"; "dunlockaut"] ~doc)
 
-let check_dunlock =
-	let doc = "Check for double unlocking" in
-	Arg.(value & flag & info ["dU"; "dunlock"] ~doc)
-
-let check_dunlock_inv =
-	let doc = "Check for double unlocking - inverse" in
-	Arg.(value & flag & info ["dUi"; "dunlockinv"] ~doc)
+let check_automata_double_lock =
+	let doc = "Check for double locking using automata" in
+	Arg.(value & flag & info ["La"; "dlockaut"] ~doc)
 
 let check_automata_double_unlock =
 	let doc = "Check for double unlocking using automata" in
@@ -236,6 +246,10 @@ let check_automata_double_unlock =
 let check_uaf =
 	let doc = "Check for use-after-free" in
 	Arg.(value & flag & info ["F"; "uaf"] ~doc)
+
+let check_automata_uaf =
+	let doc = "Check for use-after-free using automata" in
+	Arg.(value & flag & info ["Fa"; "uafaut"] ~doc)
 
 let check_birq =
 	let doc = "Check for BH-enabling while IRQs are off" in
@@ -254,11 +268,11 @@ let cmd =
 	] in
 	Term.(pure infer_files
 		$ verbose
-		$ flag_gcstats $ flag_saveabs $ flag_warn_output $ flag_fake_gcc
+		$ flag_gcstats $ flag_saveabs $ flag_warn_output $ flag_fake_gcc $ flag_no_static
 		$ flag_no_dce $ flag_no_dfe $ flag_safe_casts $ flag_externs_do_nothing
 		$ opt_inline_limit $ opt_loop_limit $ opt_branch_limit $ flag_no_path_check
 		$ flag_all_lock_types $ flag_no_match_lock_exp $ flag_ignore_writes
-		$ check_uninit $ check_dlock $ check_dunlock $ check_dunlock_inv $ check_uaf $ check_dfree $ check_birq $ check_automata_double_unlock
+		$ check_uninit $ check_dlock $ check_uaf $ check_birq $ check_automata_double_unlock $ check_automata_double_lock $ check_automata_uaf
 		$ files),
 	Term.info "eba" ~version:"0.1" ~doc ~man
 
