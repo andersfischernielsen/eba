@@ -1,4 +1,4 @@
-# EBA: An effective bug finder for C
+# EBA: An Effective Bug Finder for C
 
 *Note:* This is the development branch for the EBA bug finder. This is a work in progress with bleeding edge feature branches. Things might break. 
 
@@ -14,9 +14,11 @@ For now, you can use it to find double-lock and double-unlock bugs in the Linux 
 
 See the `--help` EBA parameter for more options. 
 
+The `--dunlockaut` and `--dlockaut` parameters run [Monitor Template](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel)-based bug checkers expressed as monitor state machines on the input. The `--dlock` and `--dunlock` parameters run pre-existing CTL-based bug checkers on the input. 
+
 ### Hows does it work?
 
-It combines side-effect analysis and model-checking, check the website for more info: [http://www.iagoabal.eu/eba/](http://www.iagoabal.eu/eba/)
+It combines side-effect analysis and model-checking, check [http://www.iagoabal.eu/eba/](http://www.iagoabal.eu/eba/) and [Monitor Templates](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel) for more details. 
 
 ### Does it really find bugs?
 
