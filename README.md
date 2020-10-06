@@ -12,7 +12,7 @@ For now, you can use it to find double-lock and double-unlock bugs in the Linux 
     make $FILENAME.i
     ./eba {--dunlockaut ; --dlockaut ; --dlock ; --dunlock} $FILENAME.i
 
-See the `--help` EBA parameter for more options. 
+See `--help` for more options. 
 
 The `--dunlockaut` and `--dlockaut` parameters run [Monitor Template](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel)-based bug checkers expressed as monitor state machines on the input. The `--dlock` and `--dunlock` parameters run pre-existing CTL-based bug checkers on the input. 
 
