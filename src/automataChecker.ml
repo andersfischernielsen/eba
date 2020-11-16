@@ -105,7 +105,6 @@ module Make (A : AutomataSpec) : S = struct
 		let p = path() in
 		match p with
 		| Seq(step, remaining) -> 
-			print_map map step "map contains: ";
 			let input = (match check_type with
 				| May 	-> EffectSet.filter is_in_transition_labels step.effs.may
 				| Must 	-> EffectSet.filter is_in_transition_labels step.effs.must) 
