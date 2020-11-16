@@ -1,0 +1,32 @@
+
+Potential BUG found:
+[Use-after-free Automata Checker]
+
+at:
+drivers/target/target_core_user.c:1299
+__dynamic_pr_debug(& __UNIQUE_ID_ddebug556, "Timing out queued cmd %p
+on dev %s.\n", cmd, (cmd->tcmu_dev)->name);
+
+trace:
+drivers/target/target_core_user.c:1297 tcmu_free_cmd(cmd);
+drivers/target/target_core_user.c:1299
+__dynamic_pr_debug(& __UNIQUE_ID_ddebug556, "Timing out queued cmd %p
+on dev %s.\n", cmd, (cmd->tcmu_dev)->name);
+
+
+
+
+Potential BUG found:
+[Use-after-free Automata Checker]
+
+at:
+drivers/target/target_core_user.c:2033
+tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
+
+trace:
+drivers/target/target_core_user.c:2034 tcmu_free_cmd(cmd);
+drivers/target/target_core_user.c:2033
+tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
+
+
+

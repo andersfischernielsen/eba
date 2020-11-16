@@ -12,5 +12,5 @@ mv $output_file $1/$output_file
 mv $original_file $1/$original_file
 
 echo "Running EBA.."
-./../../bin/eba --loop-limit=1 --branch-limit=1 --all-lock-types --dUa "$1/$(basename "$2")" | tee "$1/$1.txt"
+./../../bin/eba --loop-limit=1 --branch-limit=1 --all-lock-types --uafaut "$1/$(basename "$2")" | tee "$1/$1.txt"
 echo "Done. Results have been written to $1/$1.txt."

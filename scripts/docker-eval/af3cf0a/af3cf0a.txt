@@ -1,0 +1,32 @@
+
+Potential BUG found:
+[Use-after-free Automata Checker]
+
+at:
+drivers/usb/c67x00/c67x00-sched.c:453
+usb_hcd_unlink_urb_from_ep(hcd, urb);
+
+trace:
+drivers/usb/c67x00/c67x00-sched.c:452 c67x00_release_urb(c67x00, urb);
+drivers/usb/c67x00/c67x00-sched.c:453
+usb_hcd_unlink_urb_from_ep(hcd, urb);
+
+
+
+
+Potential BUG found:
+[Use-after-free Automata Checker]
+
+at:
+drivers/usb/c67x00/c67x00-sched.c:487
+tmp___5 =
+c67x00_hcd_to_hcd(c67x00);;usb_hcd_unlink_urb_from_ep(tmp___5, urb);
+
+trace:
+drivers/usb/c67x00/c67x00-sched.c:486 c67x00_release_urb(c67x00, urb);
+drivers/usb/c67x00/c67x00-sched.c:487
+tmp___5 =
+c67x00_hcd_to_hcd(c67x00);;usb_hcd_unlink_urb_from_ep(tmp___5, urb);
+
+
+

@@ -4,7 +4,9 @@ import sys
 import os
 import subprocess
 
-with open('previous_tests.txt', 'r') as fp:
+file = sys.argv[1]
+print(f"Testing using file: {file}") 
+with open(file, 'r') as fp:
 	for line in fp:
 		commit_hash = line.split(' ')[0].strip()
 		bug_file = line.split(' ')[1].strip()

@@ -1,0 +1,2 @@
+- Run the `docker-build.sh` script to build the testing image for Docker. 
+- Run the `run_tests_from_file.py` script with a given file containing the commit hashes and filenames to files to compile the test files and run EBA on the preprocessed files. 
