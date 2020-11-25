@@ -36,7 +36,7 @@ module Make(P: PrinterSpec) : Printer = struct
 	let find_variable r map func = 
 		let found = Map.Exceptionless.find r map in 
 		match found with 
-		| Some (name, type_) -> func type_ name 
+		| Some (name, type_) -> func type_ name r 
 		| _ 		-> ()
 
 	let generate_state_region_string region state = P.string_of_state state (Region.pp region |> PP.to_string)
@@ -95,7 +95,7 @@ module Make(P: PrinterSpec) : Printer = struct
 
 			Printf.fprintf IO.stdout "%s:\n%s " (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
 			Printf.fprintf IO.stdout "\n";
-			List.iter (fun r -> find_variable r var_region_map (Printf.fprintf IO.stdout "{ Reference: %s%s } ")) ints;
+			List.iter (fun r -> find_variable r var_region_map (Printf.fprintf IO.stdout "{ Reference: %s%s %i } ")) ints;
 			Printf.fprintf IO.stdout "\n";
 			List.iter (fun e -> pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{ Effect: %s } ") (EffectSet.to_list step.effs.may);
 			Printf.fprintf IO.stdout "\n\n";
