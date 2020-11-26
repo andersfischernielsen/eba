@@ -36,7 +36,7 @@ module Make(P: PrinterSpec) : Printer = struct
 	let find_variable r map func = 
 		let found = Map.Exceptionless.find r map in 
 		match found with 
-		| Some (name, type_) -> func type_ name r 
+		| Some (name, type_) -> func type_ name
 		| _ 		-> ()
 
 	let generate_state_region_string region state = P.string_of_state state (Region.pp region |> PP.to_string)
@@ -95,10 +95,14 @@ module Make(P: PrinterSpec) : Printer = struct
 
 			Printf.fprintf IO.stdout "%s:\n%s " (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
 			Printf.fprintf IO.stdout "\n";
-			List.iter (fun r -> find_variable r var_region_map (Printf.fprintf IO.stdout "{ Reference: %s%s %i } ")) ints;
+			(* Print format: { Effect: unlock[?ID] } { Region: ?ID } { Varname: lock3 } { Vartype: int } *)
+			List.iter2 (fun i e -> 
+				pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{ Effect: %s } ";
+				Printf.fprintf IO.stdout "{ Region: %i } " i;
+				find_variable i var_region_map (Printf.fprintf IO.stdout "{ Reference: %s%s } ");
+				Printf.fprintf IO.stdout "\n";
+			) ints (EffectSet.to_list step.effs.may);
 			Printf.fprintf IO.stdout "\n";
-			List.iter (fun e -> pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{ Effect: %s } ") (EffectSet.to_list step.effs.may);
-			Printf.fprintf IO.stdout "\n\n";
 			
 			let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
 			explore_paths remaining func without_monitors_in_final_states var_region_map inline_limit
