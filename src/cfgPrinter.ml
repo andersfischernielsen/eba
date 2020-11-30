@@ -91,17 +91,22 @@ module Make(P: PrinterSpec) : Printer = struct
 				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s)) v) interesting_monitors;
 				Printf.fprintf IO.stdout "\n");
 			
-			let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in
+			(* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
 
 			Printf.fprintf IO.stdout "%s:\n%s " (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
 			Printf.fprintf IO.stdout "\n";
-			(* Print format: { Effect: unlock[?ID] } { Region: ?ID } { Varname: lock3 } { Vartype: int } *)
-			List.iter2 (fun i e -> 
+
+			List.iter (fun e -> 
 				pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{ Effect: %s } ";
-				Printf.fprintf IO.stdout "{ Region: %i } " i;
-				find_variable i var_region_map (Printf.fprintf IO.stdout "{ Reference: %s%s } ");
+				let region = get_region e in
+				match region with 
+				| Some r -> 
+					let id = Region.uniq_of (fst r) |> Uniq.to_int in 
+					Printf.fprintf IO.stdout "{ Region: %i } " id;
+					find_variable id var_region_map (Printf.fprintf IO.stdout "{ Reference: { Vartype: %s} { Varname: %s } } ");
+				| None -> ();
 				Printf.fprintf IO.stdout "\n";
-			) ints (EffectSet.to_list step.effs.may);
+			) (EffectSet.to_list step.effs.may);
 			Printf.fprintf IO.stdout "\n";
 			
 			let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
