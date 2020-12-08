@@ -80,28 +80,13 @@ module AutomataSpec = struct
 		match previous_state with 
 		| Allocated ->
 			(match input with
-			| [Mem(Free, _)]				-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
-			(* 
-			| [Mem(Free, _); Mem(Read, _)]	-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
-			| [Mem(Read, _); Mem(Free, _)]	-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
-			| [Mem(Free, _); _]				-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
-			| [Mem(Free, _); _; _]			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
-			| [_; Mem(Free, _)] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
-			| [_; Mem(Free, _); _] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed)
-			| [_; _; Mem(Free, _)] 			-> print_es input step "Allocated -> Uncertain"; Uncertain (add_step_with Freed) 
-			*)
+			| [Mem(Free, _)]	-> print_es input step "Allocated -> Freed";     Okay (add_step_with Freed)
 			| _								-> previous
 			)
         | Freed ->
 			(match input with
 			| [Mem(Read, _) as a]	-> print_es input step "Freed -> Error"; Okay (add_step_with (Error a))
-			| [Mem(Alloc, _)]		-> print_es input step "Freed -> Allocated"; Okay (add_step_with Allocated)
-			(* | [Mem(Read, _); _] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [_; Mem(Read, _)] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [_; Mem(Read, _); _] 	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [Mem(Read, _); _; _]	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state)
-			| [_; _; Mem(Read, _)]	-> print_es input step "Freed -> Uncertain"; Uncertain (add_step_with previous_state) *)
-			| _         			-> previous
+			| _         					-> previous
 			)
 		| Error _					-> previous
 	
