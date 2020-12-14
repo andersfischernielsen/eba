@@ -1,6 +1,6 @@
 # EBA: An Effective Bug Finder for C
 
-*Note:* This is the development branch for the EBA bug finder. This is a work in progress with bleeding edge feature branches. Things might break. 
+*Note:* This is the development branch for the EBA bug finder. This is a work in progress with bleeding edge feature branches. Things might break. This repository is based upon the work of [Iago Abal](https://github.com/IagoAbal/eba).
 
 EBA is a bug finder for C based on side-effect analysis and model-checking.
 
