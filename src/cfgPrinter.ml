@@ -16,7 +16,7 @@ module type PrinterSpec = sig
     val initial_state: state
 	val is_in_transition_labels: e -> bool
 	val is_in_final_state: state -> bool
-	val string_of_state: state -> string -> string
+	val string_of_state: state -> string
 end
 
 module type Printer = sig
@@ -39,7 +39,10 @@ module Make(P: PrinterSpec) : Printer = struct
 		| Some (name, type_) -> func type_ name
 		| _ 		-> ()
 
-	let generate_state_region_string region state = P.string_of_state state (Region.pp region |> PP.to_string)
+	let generate_state_region_string region state (map:(int, name * name) BatMap.t) = 
+		let region_identifier = Region.uniq_of region |> Uniq.to_int in
+		let variable_name = match Map.Exceptionless.find region_identifier map with | Some (name, _type)  -> name | None -> "" in
+		Format.sprintf "%s %s, %s" variable_name (Region.pp region |> PP.to_string) (P.string_of_state state)
 
     let rec explore_paths path func map var_region_map inline_limit = 
 		let p = path() in
@@ -88,7 +91,7 @@ module Make(P: PrinterSpec) : Printer = struct
 
 			if not (Map.is_empty interesting_monitors)
 			then 
-				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s)) v) interesting_monitors;
+				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s var_region_map)) v) interesting_monitors;
 				Printf.fprintf IO.stdout "\n");
 			
 			(* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)

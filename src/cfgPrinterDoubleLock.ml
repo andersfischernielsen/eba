@@ -47,10 +47,10 @@ module Spec: PrinterSpec = struct
         | Unlocked 	-> true
 		| _ 		-> false
 
-	let string_of_state state s = 
+	let string_of_state state = 
 		match state with 
-		| Locked 	-> Format.sprintf "%s: Locked" s 
-		| Unlocked 	-> Format.sprintf "%s: Unlocked" s 
+		| Locked 	-> Format.sprintf "Locked" 
+		| Unlocked 	-> Format.sprintf "Unlocked" 
 		| _ 		-> ""
 end 
 
