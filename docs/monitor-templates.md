@@ -56,7 +56,7 @@ For an example of a full implementation of this signature, see [checkAutomataDou
 
 The definition of when and how state changes should happen is implemented in the `transition` function. This can efficiently be implemented as a pattern match on what the previous state was, and what the incoming input is. A new state is then returned and preserved in the [checker](../automataChecker.ml) which is in charge of applying the input found in the `eba` CFG to the transition function. 
 
-# The Monitor Template Runner AutomataChecker.ml
+# The Monitor Template Runner [AutomataChecker](../automataChecker.ml)
 
 Monitor template definitions are passed to the [AutomataChecker.ml](../automataChecker.ml). This checker takes an implementation of a monitor template, and the function under analysis. This function is passed to the AutomataChecker by the outer `eba` analysis logic. 
 
