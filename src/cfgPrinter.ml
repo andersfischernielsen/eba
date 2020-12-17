@@ -39,10 +39,11 @@ module Make(P: PrinterSpec) : Printer = struct
 		| Some (name, type_) -> func type_ name
 		| _ 		-> ()
 
-	let generate_state_region_string region state (map:(int, name * name) BatMap.t) = 
-		let region_identifier = Region.uniq_of region |> Uniq.to_int in
-		let variable_name = match Map.Exceptionless.find region_identifier map with | Some (name, _type)  -> name | None -> "" in
-		Format.sprintf "%s %s, %s" variable_name (Region.pp region |> PP.to_string) (P.string_of_state state)
+	let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls = 
+		let region_identifier r = Region.uniq_of r |> Uniq.to_int in
+		let variable_name identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> name | None -> "" in
+		let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_identifier c)) calls) in
+		Format.sprintf "%s %s, %s from call(s): %s" (variable_name (region_identifier region)) (Region.pp region |> PP.to_string) (P.string_of_state state) calls_
 
     let rec explore_paths path func map var_region_map inline_limit = 
 		let p = path() in
@@ -91,7 +92,8 @@ module Make(P: PrinterSpec) : Printer = struct
 
 			if not (Map.is_empty interesting_monitors)
 			then 
-				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s var_region_map)) v) interesting_monitors;
+				let call_regions = List.filter_map (fun e -> match e with Mem(Call, r) -> Some r | _ -> None) input in
+				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s var_region_map call_regions)) v) interesting_monitors;
 				Printf.fprintf IO.stdout "\n");
 			
 			(* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
