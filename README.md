@@ -20,6 +20,8 @@ See `--help` for more options.
 
 The `--dunlockaut` and `--dlockaut` parameters run [Monitor Template](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel)-based bug checkers expressed as monitor state machines on the input. The `--dlock` and `--dunlock` parameters run pre-existing CTL-based bug checkers on the input. 
 
+For an overview of how monitor templates are implemented, see [Monitor Templates](docs/monitor-templates.md).
+
 ### Hows does it work?
 
 It combines side-effect analysis and model-checking, check [http://www.iagoabal.eu/eba/](http://www.iagoabal.eu/eba/) and [Monitor Templates](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel) for more details. 
