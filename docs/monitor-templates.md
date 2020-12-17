@@ -25,13 +25,13 @@ module type PrinterSpec = sig
 end
 ```
 
-For an example of a full implementation of this signature, see [checkAutomataDoubleUnlock.ml](../checkAutomataDoubleUnlock.ml)
+For an example of a full implementation of this signature, see [checkAutomataDoubleUnlock.ml](../src/checkAutomataDoubleUnlock.ml)
 
 The definition of when and how state changes should happen is implemented in the `transition` function. This can efficiently be implemented as a pattern match on what the previous state was, and what the incoming input is. 
 
-# The Printer [CFGPrinter](../cfgPrinter.ml)
+# The Printer [CFGPrinter](../src/cfgPrinter.ml)
 
-Monitor template definitions are passed to the [CFGPrinter.ml](../cfgPrinter.ml). This printer takes an implementation of a monitor template, and the CFG `step`. This step is passed to the CFGPrinter by the outer `eba` analysis logic. 
+Monitor template definitions are passed to the [CFGPrinter.ml](../src/cfgPrinter.ml). This printer takes an implementation of a monitor template, and the CFG `step`. This step is passed to the CFGPrinter by the outer `eba` analysis logic. 
 
 The CFGPrinter will explore the `eba` CFG and apply any effects found within a `step` in the CFG, provided that these effects are in the `is_in_transition_labels` of the monitor template implementation. The resulting state of applying the transition function of the monitor with the effects found in the `step` is preserved in the CFGPrinter as a mapping from the region a monitor template operates on to the current state of that monitor. 
 
@@ -43,4 +43,4 @@ Finally, if a monitor reports that `it is_in_interesting_section`, the state of 
 
 # Adding a new printing monitor template implementation to `eba` 
 
-Creating a new printing monitor template implementation _should_ be the only thing required in order to add more information to the CFG printout, but modifications or additions might be needed in [CFGPrinter.ml](../cfgPrinter.ml). This depends on the use case and complexity of the printout.
+Creating a new printing monitor template implementation _should_ be the only thing required in order to add more information to the CFG printout, but modifications or additions might be needed in [CFGPrinter.ml](../src/cfgPrinter.ml). This depends on the use case and complexity of the printout.
