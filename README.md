@@ -2,6 +2,10 @@
 
 *Note:* This is the development branch for the EBA bug finder. This is a work in progress with bleeding edge feature branches. Things might break. This repository is based upon the work of [Iago Abal](https://github.com/IagoAbal/eba).
 
+For an overview of this repository and its branches, see [Repositories & Branches](docs/repository-structure.md).
+
+-----
+
 EBA is a bug finder for C based on side-effect analysis and model-checking.
 
 For now, you can use it to find double-lock and double-unlock bugs in the Linux kernel, by:
