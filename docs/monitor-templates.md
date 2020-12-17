@@ -52,11 +52,11 @@ module type AutomataSpec = sig
 end
 ```
 
-For an example of a full implementation of this signature, see [checkAutomataDoubleLock.ml](../checkAutomataDoubleLock.ml)
+For an example of a full implementation of this signature, see [checkAutomataDoubleLock.ml](../src/checkAutomataDoubleLock.ml)
 
-The definition of when and how state changes should happen is implemented in the `transition` function. This can efficiently be implemented as a pattern match on what the previous state was, and what the incoming input is. A new state is then returned and preserved in the [checker](../automataChecker.ml) which is in charge of applying the input found in the `eba` CFG to the transition function. 
+The definition of when and how state changes should happen is implemented in the `transition` function. This can efficiently be implemented as a pattern match on what the previous state was, and what the incoming input is. A new state is then returned and preserved in the [checker](../src/automataChecker.ml) which is in charge of applying the input found in the `eba` CFG to the transition function. 
 
-# The Monitor Template Runner [AutomataChecker](../automataChecker.ml)
+# The Monitor Template Runner [AutomataChecker](../src/automataChecker.ml)
 
 Monitor template definitions are passed to the [AutomataChecker.ml](../automataChecker.ml). This checker takes an implementation of a monitor template, and the function under analysis. This function is passed to the AutomataChecker by the outer `eba` analysis logic. 
 
@@ -72,7 +72,7 @@ Finally, if a bug is discovered it will then be reported to the outer `eba` logi
 
 Once a new monitor template has been implemented, it can be exposed to the outer `eba` logic in order to allow users to run the monitor template on files. 
 
-This is done in [eba.ml](../eba.ml) in the form seen below.
+This is done in [eba.ml](../src/eba.ml) in the form seen below.
 
 ``` ocaml
 if checks.chk_automata_double_lock
