@@ -95,6 +95,6 @@ let check_automata_double_lock =
 ... $ check_automata_double_unlock $ ... $ check_automata_double_lock $ check_automata_uaf ...
 ```
 
-Creating a new monitor template implementation _should_ be the only thing required in order to check for new bug types within `eba`, but modifications or additions might be needed in [AutomataChecker.ml](../automataChecker.ml). This depends on the use case and complexity of the bug.
+Creating a new monitor template implementation _should_ be the only thing required in order to check for new bug types within `eba`, but modifications or additions might be needed in [AutomataChecker.ml](../src/automataChecker.ml). This depends on the use case and complexity of the bug.
 
 For a complete overview of the design and implementations of monitor templates, see [the Thesis](https://github.com/andersfischernielsen/Finding-Resource-Manipulation-Bugs-with-Monitor-Automata-on-the-Example-of-the-Linux-Kernel/blob/master/report.pdf) where they were initially defined.
