@@ -1,4 +1,4 @@
-# Monitor templates
+# Monitor Templates
 
 Monitor templates are used for developing new bug checkers within `eba`. These provide an easy-to-understand, relatively simple way of implementing bug checkers for the Linux kernel as state machines. 
 
