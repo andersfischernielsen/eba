@@ -40,7 +40,7 @@ module Spec: PrinterSpec = struct
 		match state with 
         | Locked 	-> true
         | Unlocked 	-> true
-		| Initial 	-> false
+	| Initial 	-> true
 
 	let is_in_final_state state = 
 		match state with 

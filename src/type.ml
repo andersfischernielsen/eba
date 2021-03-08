@@ -1988,10 +1988,10 @@ and Subst : sig
 		}
 
 	let of_enum_pair xs ys =
-		let zs = Enum.combine(VarEnum.shapes xs,VarEnum.shapes ys) in
-		let rs = Enum.combine(VarEnum.regions xs,VarEnum.regions ys) in
-		let fs = Enum.combine(VarEnum.effects xs,VarEnum.effects ys) in
-		make zs rs fs
+		let zs = Enum.combine (VarEnum.shapes xs) (VarEnum.shapes ys) in
+                let rs = Enum.combine (VarEnum.regions xs) (VarEnum.regions ys) in
+                let fs = Enum.combine (VarEnum.effects xs) (VarEnum.effects ys) in
+                make zs rs fs
 
 	let find_shape a {shapes}  = ShapeMap.Exceptionless.find a shapes
 
