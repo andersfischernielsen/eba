@@ -20,11 +20,17 @@ let match_pair = function
 	| [a;b] -> (a,b)
 	| ____  -> Error.panic_with "match_pair: not a 2-element list"
 
-let colored cd str = Printf.sprintf "\027[%sm%s\027[0m" cd str
+(*let colored cd str = Printf.sprintf "\027[%sm%s\027[0m" cd str*)
+let colored cd str = Printf.sprintf "%s%s" cd str
 
-let green = colored "0;32"
+                 
+(*let green = colored "0;32"
 let purple = colored "0;35"
-let cyan = colored "0;36"
+let cyan = colored "0;36"*)
+                   
+let green = colored ""
+let purple = colored ""
+let cyan = colored ""
 
 let check_if_file_exists fname :unit =
 	if Sys.file_exists fname
