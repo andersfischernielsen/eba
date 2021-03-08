@@ -10,137 +10,247 @@ open PathTree
 open Dolog
 
 module type PrinterSpec = sig
-	type state
-	val transition: state -> e list -> state
-    val is_in_interesting_section: state -> bool
-    val initial_state: state
-	val is_in_transition_labels: e -> bool
-	val is_in_final_state: state -> bool
-	val string_of_state: state -> string
+  type state
+  val transition: state -> e list -> state
+  val is_in_interesting_section: state -> bool
+  val initial_state: state
+  val is_in_transition_labels: e -> bool
+  val is_in_final_state: state -> bool
+  val string_of_state: state -> string
 end
 
 module type Printer = sig
-	val print : AFile.t -> Cil.fundec -> int -> unit
+  val print : AFile.t -> Cil.fundec -> int -> unit
 end
 
 module Make(P: PrinterSpec) : Printer = struct
-	let get_region e = 
-		match e with
-		| Mem(_, region) -> Some (region, e)
-		| _ 			 -> None
+  let get_1_2 (a,_) = a
+  let get_2_2 (_,a) = a
+  let get_region e =
+    match e with
+    | Mem(_, region) -> Some (region, e)
+    | _ 			 -> None
+                                  
+  let extract_regions r_es =
+    let split = List.split r_es in
+    (List.hd (fst split), (snd split))
+    
+  let find_variable r map func =
+    let found = Map.Exceptionless.find r map in
+    match found with
+    | Some (name, type_) -> func type_ name
+    | _ 		-> ()
 
-	let extract_regions r_es = 
-		let split = List.split r_es in
-		(List.hd (fst split), (snd split))
+  let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls =
+    let region_identifier r = Region.uniq_of r |> Uniq.to_int in
+    let variable_name identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> name | None ->"" in
+    (*let variable_name _identifier = lname in*)
+    let variable_type identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> _type | None ->"" in
+    let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_identifier c)) calls) in
+    Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s" (P.string_of_state state) (variable_name(region_identifier region))
+      (variable_type(region_identifier region)) (Region.pp region |> PP.to_string) calls_
 
-	let find_variable r map func = 
-		let found = Map.Exceptionless.find r map in 
-		match found with 
-		| Some (name, type_) -> func type_ name
-		| _ 		-> ()
+  let rec explore_paths path func map var_region_map inline_limit =
+    let p = path() in
+    match p with
+    | Seq(step, remaining) ->
+       let apply_transition effects map_to_add_to =
+	 let result = List.fold_right (fun (r_e:region * e list) map ->
+			  match r_e with | r, es ->
+					    let initial : P.state list = [P.initial_state] in
+					    let result : P.state list = Map.find_default initial r map_to_add_to in
+					    let applied = List.map (fun s -> P.transition s es) result
+					    in
+					    Map.add r applied map) effects map_to_add_to in
+	 result
+       in
+       
+       let call_present = find_in_stmt (fun is ->
+			      if List.exists (fun i ->
+				     match i with
+				     | Cil.(Call _) -> true
+				     | _ -> false) is
+			      then Some(true)
+			      else None)
+			    step
+       in
+       
+       if Option.is_some call_present && inline_limit > 0
+       then
+	 let inlined = inline func step in         
+	 match inlined with
+	 | Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
+	 | _ -> ()
+       else  
+	 Printf.fprintf IO.stdout "";
+       
+       let input = step.effs.may |> EffectSet.to_list in
+       let region_options = List.map get_region input in
+       let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in
+       
+       let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions |> List.map extract_regions in
+       
+       let states = apply_transition grouped map in
+       
+       let interesting_monitors = Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
+       
+       if not (Map.is_empty interesting_monitors)
+       then
+         begin
+           Printf.printf "@@@%d\n" (List.length regions);
+	   (* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
+           let lock_funs = ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
+                            "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
+                            "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
+                            "spin_lock_irqsave";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";"__raw_spin_unlock";
+                            "_raw_read_unlock";"__raw_read_unlock";"_raw_spin_unlock_irq";"__raw_spin_unlock_irq";
+                            "_raw_spin_unlock_irqrestore";"_raw_spin_unlock_bh";"spin_unlock_irqrestore";"spin_unlock";
+                            "spin_unlock_irqrestore"] in
+           (* Gets the name of the expression involving a call, 
+            it is for function name or arguments 
+            although it works over expressions *)
+           let rec getFAname (exp : Cil.exp) : string =
+             let rec explore_offset (offs:Cil.offset) = match offs with
+               |NoOffset -> ""
+               |Field (info, NoOffset) -> info.fname
+               |Field (info, o) -> info.fname ^"."^(explore_offset o)
+               |Index (e,o) -> (getFAname e)^"[i]"^(explore_offset o) in
+             match exp with
+             |Lval (Var name,o) ->
+               let offr = explore_offset o in
+               if offr <> "" then name.vname ^"."^offr else
+                 name.vname
+             |Lval (Mem e, o) ->
+               let offr = explore_offset o in
+               if offr <> "" then (getFAname e)^"."^offr else
+                 (getFAname e)
+             |CastE (_typeOfCast, e) -> getFAname e (* Cast of a variable *)
+             |Const (_) -> "const"                  (* Constant *)
+             |BinOp (_,e1,e2,_) -> (getFAname e1) ^ "-" ^ (getFAname e2)
+             |AddrOf lval -> getFAname (Lval lval)
+             |UnOp (_,e,_) -> getFAname e
+             |StartOf _ -> "#startOf#"
+             |SizeOfE _ -> "#sizeOfE#"
+             |SizeOf _ -> "#sizeOf#"
+             |AlignOf _ -> "#typeAlign#"
+             |AlignOfE _ -> "#typeAlign#"
+             |_ -> "Unknown"
+           in
+           let fcall = match step.kind with
+             | Stmt l -> List.filter (fun (i:Cil.instr) -> match i with Call _ -> true | _ -> false) l
+             | _ -> []
+           in
+           (* Just look for call that manipulate locks *)
+           let fcall = match step.kind with
+             | Stmt l -> List.filter (fun (i:Cil.instr) ->
+                             match i with
+                             |Call (_,e,_,_) ->
+                               begin
+                                 match e with
+                                 |Lval (Var name,_) -> List.exists ((=)name.vname) lock_funs
+                                 |_ -> false
+                               end
+                             |_ -> false) l
+             | _ -> []          
+           in
+           let lnames = List.map (fun (fc:Cil.instr) ->
+                            match fc with
+                            |Call(_,_,args,_) -> getFAname (List.hd args)
+                            |_ -> "") fcall in
 
-	let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls = 
-		let region_identifier r = Region.uniq_of r |> Uniq.to_int in
-		let variable_name identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> name | None -> "" in
-		let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_identifier c)) calls) in
-		Format.sprintf "%s %s, %s from call(s): %s" (variable_name (region_identifier region)) (Region.pp region |> PP.to_string) (P.string_of_state state) calls_
+           let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in
+           let var_region_map = 
+             if lname <> "" then
+               (*We are standing at a lock manipulation API call, so it is a good place to update the name associated with the region*)
+               let replaced = ref false in (*A name has already beeing replaced; flag to detect possible collissions*)
+               let k_ptr = ref 0 in
+               let vt_ptr = ref "" in
+               Printf.printf "### Lockname: %s\n" lname;
+               Map.iter (fun k (vn,vt) ->
+                   try
+                     let _ = BatString.find lname vn in
+                     if !replaced = true then
+                       Printf.fprintf IO.stdout "Warning: Possible lock name collision. Prefix: %s First replacement for region %d\n" vn k
+                     else
+                       begin
+                         k_ptr := k;
+                         vt_ptr :=vt;
+                         replaced := true;
+                       end
+                   with Not_found ->
+                     ()
+                 ) var_region_map;
+               if !vt_ptr <> "" then
+                 BatMap.add !k_ptr (lname,!vt_ptr) var_region_map
+               else
+                 var_region_map
+               else
+                 var_region_map
+           in
+           
+	   Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s" (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
+           Printf.fprintf IO.stdout ":endStatements\n";       
+           let call_regions = List.filter_map (fun e -> match e with Mem(Call, r) -> Some r | _ -> None) input in
+           (Map.iter (fun k v ->
+                List.iter (fun s ->
+                    if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
+                    then
+                      Printf.fprintf IO.stdout "{State:%s}" (generate_state_region_string k s var_region_map call_regions)
+                  )v
+              )interesting_monitors;
+	    Printf.fprintf IO.stdout "\n");
+           
+           List.iter (fun e ->
+	       pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{Effect:%s}";
+	       let region = get_region e in
+	       match region with
+	       | Some r ->
+	          let id = Region.uniq_of (fst r) |> Uniq.to_int in
+	          Printf.fprintf IO.stdout "{Region:%i} " id;
+	          find_variable id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+	       | None -> ();
+		         Printf.fprintf IO.stdout "\n";
+	     ) (EffectSet.to_list step.effs.may);
+           Printf.fprintf IO.stdout "\n";
+       
+	   let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
+	   explore_paths remaining func without_monitors_in_final_states var_region_map inline_limit
+         end
+    | Assume(_, _, remaining) ->
+       explore_paths remaining func map var_region_map inline_limit
+    | If(true_path, false_path) ->
+       explore_paths true_path func map var_region_map inline_limit;
+       explore_paths false_path func map var_region_map inline_limit
+    | Nil -> ()
+           
+  let print file declaration inline_limit =
+    let variable_info = Cil.(declaration.svar) in
+    let _, global_function = Option.get(AFile.find_fun file variable_info) in
+    Printf.fprintf IO.stdout "---------\n";
+    Printf.fprintf IO.stdout "FileName:%s:FunName:%s:LineNum:%i:\n" variable_info.vdecl.file variable_info.vname  variable_info.vdecl.line;
+    let path_tree = paths_of global_function in
+    
+    let var_region_map = Map.foldi (fun (k:Cil.varinfo) (v:Regions.t) acc ->
+			     let name = Cil.(k.vname) in
+			     let type_ = Cil.(k.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
+			     Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) v acc
+			   ) (AFile.global_variables_and_regions file) Map.empty in
+    let append l1 l2 =
+      let rec loop acc l1 l2 =
+	match l1, l2 with
+	| [], [] -> List.rev acc
+	| [], h :: t -> loop (h :: acc) [] t
+	| h :: t, l -> loop (h :: acc) t l
+      in
+      loop [] l1 l2 in
+    let var_region_map = append Cil.(declaration.sformals) Cil.(declaration.slocals) |> List.fold_left (fun acc e ->
+			                                                                    let name = Cil.(e.vname) in
+			                                                                    let type_ = Cil.(e.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
+			                                                                    let regions = AFun.regions_of global_function e in
+			                                                                    let added = Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) regions acc in
+			                                                                    added
+			                                                                  ) var_region_map in
+    let var_region_map = Map.filter (fun k _ -> k != -1) var_region_map in
+    explore_paths path_tree global_function Map.empty var_region_map inline_limit
 
-    let rec explore_paths path func map var_region_map inline_limit = 
-		let p = path() in
-		match p with
-		| Seq(step, remaining) -> 
-			let apply_transition effects map_to_add_to = 
-					let result = List.fold_right (fun (r_e:region * e list) map -> 
-						match r_e with | r, es -> 
-							let initial : P.state list = [P.initial_state] in 
-							let result : P.state list = Map.find_default initial r map_to_add_to in 
-							let applied = List.map (fun s -> P.transition s es) result 
-							in
-							Map.add r applied map) effects map_to_add_to in
-					result
-				in
-
-			let call_present = find_in_stmt (fun is -> 
-				if List.exists (fun i -> 
-					match i with 
-					| Cil.(Call _) -> true 
-					| _ -> false) is 
-				then Some(true) 
-				else None)
-				step 
-			in
-
-			if Option.is_some call_present && inline_limit > 0
-			then 
-				let inlined = inline func step in
-
-				match inlined with 
-				| Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
-				| _ -> ()
-			else
-
-			Printf.fprintf IO.stdout "";
-			let input = step.effs.may |> EffectSet.to_list in
-			let region_options = List.map get_region input in
-			let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in 
-			
-			let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions |> List.map extract_regions in
-
-			let states = apply_transition grouped map in 
-
-			let interesting_monitors = Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
-
-			if not (Map.is_empty interesting_monitors)
-			then 
-				let call_regions = List.filter_map (fun e -> match e with Mem(Call, r) -> Some r | _ -> None) input in
-				(Map.iter (fun k v -> List.iter (fun s -> Printf.fprintf IO.stdout "{ State: %s } " (generate_state_region_string k s var_region_map call_regions)) v) interesting_monitors;
-				Printf.fprintf IO.stdout "\n");
-			
-			(* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
-
-			Printf.fprintf IO.stdout "%s:\n%s " (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
-			Printf.fprintf IO.stdout "\n";
-
-			List.iter (fun e -> 
-				pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{ Effect: %s } ";
-				let region = get_region e in
-				match region with 
-				| Some r -> 
-					let id = Region.uniq_of (fst r) |> Uniq.to_int in 
-					Printf.fprintf IO.stdout "{ Region: %i } " id;
-					find_variable id var_region_map (Printf.fprintf IO.stdout "{ Reference: { Vartype: %s} { Varname: %s } } ");
-				| None -> ();
-				Printf.fprintf IO.stdout "\n";
-			) (EffectSet.to_list step.effs.may);
-			Printf.fprintf IO.stdout "\n";
-			
-			let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
-			explore_paths remaining func without_monitors_in_final_states var_region_map inline_limit
-		| Assume(_, _, remaining) -> 
-			explore_paths remaining func map var_region_map inline_limit
-		| If(true_path, false_path) -> 
-			explore_paths true_path func map var_region_map inline_limit;
-            explore_paths false_path func map var_region_map inline_limit
-		| Nil -> ()
-
-	let print file declaration inline_limit =
-		let variable_info = Cil.(declaration.svar) in
-        let _, global_function = Option.get(AFile.find_fun file variable_info) in
-		Printf.fprintf IO.stdout "%s:%s:%i:\n" variable_info.vdecl.file variable_info.vname  variable_info.vdecl.line;
-        let path_tree = paths_of global_function in
-
-		let var_region_map = Map.foldi (fun (k:Cil.varinfo) (v:Regions.t) acc -> 
-			let name = Cil.(k.vname) in
-			let type_ = Cil.(k.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
-			Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) v acc
-			) (AFile.global_variables_and_regions file) Map.empty in
-		let var_region_map = Cil.(declaration.slocals) |> List.fold_left (fun acc e -> 
-			let name = Cil.(e.vname) in
-			let type_ = Cil.(e.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
-			let regions = AFun.regions_of global_function e in
-			let added = Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) regions acc in
-			added
-			) var_region_map in
-		let var_region_map = Map.filter (fun k _ -> k != -1) var_region_map in
-        explore_paths path_tree global_function Map.empty var_region_map inline_limit
 end
