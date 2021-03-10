@@ -50,6 +50,8 @@ module Make(P: PrinterSpec) : Printer = struct
     Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s" (P.string_of_state state) (variable_name(region_identifier region))
       (variable_type(region_identifier region)) (Region.pp region |> PP.to_string) calls_
 
+  let cil_tmp_dir = Hashtbl.create 50
+
   let rec explore_paths path func map var_region_map inline_limit =
     let p = path() in
     match p with
@@ -141,51 +143,58 @@ module Make(P: PrinterSpec) : Printer = struct
              | _ -> []
            in
            (* Just look for call that manipulate locks *)
-           let fcall = match step.kind with
-             | Stmt l -> List.filter (fun (i:Cil.instr) ->
-                             match i with
-                             |Call (_,e,_,_) ->
-                               begin
-                                 match e with
-                                 |Lval (Var name,_) -> List.exists ((=)name.vname) lock_funs
-                                 |_ -> false
-                               end
-                             |_ -> false) l
-             | _ -> []          
+           let lcall = List.filter (fun (i:Cil.instr) ->
+                           match i with
+                           |Call (_,e,_,_) ->
+                             begin
+                               match e with
+                               |Lval (Var name,_) -> List.exists ((=)name.vname) lock_funs
+                               |_ -> false
+                             end
+                           |_ -> false) fcall
            in
+           (* Keep track of function calls whos results are assigned to cil tmp variables *)
+           List.iter(fun (i:Cil.instr) ->
+               match i with
+               |Call (Some (Cil.Var vi,_),_,arg1::_args,_) ->
+                 if BatString.starts_with vi.vname "tmp" then
+                   begin
+                     Printf.eprintf "Tmp assignment: %s -> %s\n" vi.vname (getFAname arg1);
+                     Hashtbl.remove cil_tmp_dir vi.vname;
+                     Hashtbl.add cil_tmp_dir vi.vname (getFAname arg1);
+                       
+                   end
+               |_ -> ())fcall;
            let lnames = List.map (fun (fc:Cil.instr) ->
                             match fc with
                             |Call(_,_,args,_) -> getFAname (List.hd args)
-                            |_ -> "") fcall in
+                            |_ -> "") lcall in
 
            let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in
            let var_region_map = 
              if lname <> "" then
-               (*We are standing at a lock manipulation API call, so it is a good place to update the name associated with the region*)
-               let replaced = ref false in (*A name has already beeing replaced; flag to detect possible collissions*)
-               let k_ptr = ref 0 in
-               let vt_ptr = ref "" in
-               Printf.printf "### Lockname: %s\n" lname;
-               Map.iter (fun k (vn,vt) ->
+               let lname = if BatString.starts_with lname "tmp" then
+                             try
+                               Hashtbl.find cil_tmp_dir lname
+                             with Not_found -> lname
+                           else
+                             lname
+               in
+                 
+               let c_regions = Map.filter (fun _k v ->
+                                   List.exists (fun s -> P.string_of_state s = "Locked" || P.string_of_state s = "Unlocked") v
+                                 ) interesting_monitors in
+               Map.foldi (fun k _v acc ->
                    try
-                     let _ = BatString.find lname vn in
-                     if !replaced = true then
-                       Printf.fprintf IO.stdout "Warning: Possible lock name collision. Prefix: %s First replacement for region %d\n" vn k
-                     else
-                       begin
-                         k_ptr := k;
-                         vt_ptr :=vt;
-                         replaced := true;
-                       end
-                   with Not_found ->
-                     ()
-                 ) var_region_map;
-               if !vt_ptr <> "" then
-                 BatMap.add !k_ptr (lname,!vt_ptr) var_region_map
-               else
-                 var_region_map
-               else
-                 var_region_map
+                     let (vn,vt) = BatMap.find (Region.uniq_of k |> Uniq.to_int) var_region_map in
+                     if vn = lname then raise Not_found; (* Just set the lock name once *)
+                     ignore(BatString.find lname vn);
+                     Printf.eprintf "Lock name set for region %d --> %s\n" (Region.uniq_of k |> Uniq.to_int) lname;
+                     BatMap.add (Region.uniq_of k |> Uniq.to_int) (lname,vt) acc                  
+                   with Not_found -> acc
+                 ) c_regions var_region_map  
+             else
+               var_region_map
            in
            
 	   Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s" (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
@@ -195,7 +204,7 @@ module Make(P: PrinterSpec) : Printer = struct
                 List.iter (fun s ->
                     if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
                     then
-                      Printf.fprintf IO.stdout "{State:%s}" (generate_state_region_string k s var_region_map call_regions)
+                        Printf.fprintf IO.stdout "{State:%s}" (generate_state_region_string k s var_region_map call_regions)
                   )v
               )interesting_monitors;
 	    Printf.fprintf IO.stdout "\n");
