@@ -99,15 +99,14 @@ module Make(P: PrinterSpec) : Printer = struct
        if not (Map.is_empty interesting_monitors)
        then
          begin
-           Printf.printf "@@@%d\n" (List.length regions);
 	   (* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
            let lock_funs = ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
                             "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
                             "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
-                            "spin_lock_irqsave";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";"__raw_spin_unlock";
+                            "spin_lock_irqsave";"spin_lock_bh";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";"__raw_spin_unlock";
                             "_raw_read_unlock";"__raw_read_unlock";"_raw_spin_unlock_irq";"__raw_spin_unlock_irq";
                             "_raw_spin_unlock_irqrestore";"_raw_spin_unlock_bh";"spin_unlock_irqrestore";"spin_unlock";
-                            "spin_unlock_irqrestore"] in
+                            "spin_unlock_irqrestore";"spin_unlock_bh"] in
            (* Gets the name of the expression involving a call, 
             it is for function name or arguments 
             although it works over expressions *)
@@ -159,7 +158,7 @@ module Make(P: PrinterSpec) : Printer = struct
                |Call (Some (Cil.Var vi,_),_,arg1::_args,_) ->
                  if BatString.starts_with vi.vname "tmp" then
                    begin
-                     Printf.eprintf "Tmp assignment: %s -> %s\n" vi.vname (getFAname arg1);
+                     (*Printf.eprintf "Tmp assignment: %s -> %s\n" vi.vname (getFAname arg1);*)
                      Hashtbl.remove cil_tmp_dir vi.vname;
                      Hashtbl.add cil_tmp_dir vi.vname (getFAname arg1);
                        
@@ -175,10 +174,18 @@ module Make(P: PrinterSpec) : Printer = struct
              if lname <> "" then
                let lname = if BatString.starts_with lname "tmp" then
                              try
-                               Hashtbl.find cil_tmp_dir lname
-                             with Not_found -> lname
+                               let l_ref = ref "tmp" in
+                               while BatString.starts_with !l_ref "tmp" do
+                                 l_ref := Hashtbl.find cil_tmp_dir lname
+                               done;
+                               Printf.eprintf "%s\n" !l_ref;
+                               !l_ref
+                             with Not_found -> Printf.eprintf "Warning: tmp lock name not found in directory\n"; lname
                            else
+                             begin
+                             Printf.eprintf "%s\n" lname;
                              lname
+                             end
                in
                  
                let c_regions = Map.filter (fun _k v ->
