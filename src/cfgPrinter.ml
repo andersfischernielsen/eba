@@ -1,7 +1,5 @@
 open Batteries
 
-module L = LazyList
-
 open Type
 open Abs
 open PathTree
