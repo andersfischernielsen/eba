@@ -5,6 +5,7 @@ open Effects
 open CfgPrinter
 
 module Spec: PrinterSpec = struct 
+
     type state = 
 		| Initial
 		| Locked

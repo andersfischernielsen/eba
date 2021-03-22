@@ -7,7 +7,9 @@ open Effects
 open PathTree
 open Dolog
 
+
 module type PrinterSpec = sig
+  
   type state
   val transition: state -> e list -> state
   val is_in_interesting_section: state -> bool
@@ -15,19 +17,23 @@ module type PrinterSpec = sig
   val is_in_transition_labels: e -> bool
   val is_in_final_state: state -> bool
   val string_of_state: state -> string
+
 end
+
 
 module type Printer = sig
+
   val print : AFile.t -> Cil.fundec -> int -> unit
+
 end
 
-module Make(P: PrinterSpec) : Printer = struct
-  let get_1_2 (a,_) = a
-  let get_2_2 (_,a) = a
+
+module Make (P: PrinterSpec): Printer = struct
+
   let get_region e =
     match e with
-    | Mem(_, region) -> Some (region, e)
-    | _ 			 -> None
+    | Mem (_, region) -> Some (region, e)
+    | _ -> None
                                   
   let extract_regions r_es =
     let split = List.split r_es in
