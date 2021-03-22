@@ -4,8 +4,6 @@ open Type
 open Abs
 open PathTree
 open Effects
-open PathTree
-open Dolog
 
 
 module type PrinterSpec = sig
