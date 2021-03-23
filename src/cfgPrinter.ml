@@ -27,30 +27,38 @@ module type Printer = sig
 
 end
 
-
 module MakeT (P: PrinterSpec) = struct
+
+  (* TODO: this is not the right module to define this type, and perhaps
+     already something like that exists. But helps for now. Eliminate. *)
+  type vrmap = (int, name * name) BatMap.t
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
   let get_region e =
     match e with
     | Mem (_, region) -> Some (region, e)
-    | _ -> None
+    | _______________ -> None
+
 
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list = 
-    assert_msg ~msg: "extract_regions requires a non-empty list"
+    assert_msg 
+      ~msg: "extract_regions requires a non-empty list"
       (List.is_empty r_es |> not);
     let split = List.split r_es in
-      (List.hd (fst split), snd split)
+    (split |> fst |> List.hd, snd split)
 
 
-  let find_variable r map func =
-    let found = Map.Exceptionless.find r map in
-    match found with
+
+  (** Find the region (integer) [r] in the map [map] and 
+      applies [func].  TODO: fishily-specific, likely 
+      eliminatable or abstractable *)
+  let vrmap_iterate r (map: vrmap) (func: name -> name -> unit): unit =
+    match Map.Exceptionless.find r map with
     | Some (name, type_) -> func type_ name
-    | _ 		-> ()
+    | __________________ -> ()
 
   let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls =
     let region_identifier r = Region.uniq_of r |> Uniq.to_int in
@@ -234,7 +242,7 @@ module MakeT (P: PrinterSpec) = struct
               | Some r ->
                  let id = Region.uniq_of (fst r) |> Uniq.to_int in
                  Printf.fprintf IO.stdout "{Region:%i} " id;
-                 find_variable id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+                 vrmap_iterate id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
               | None -> ();
                  Printf.fprintf IO.stdout "\n";
            ) (EffectSet.to_list step.effs.may);
