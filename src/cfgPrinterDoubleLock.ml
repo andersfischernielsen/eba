@@ -1,6 +1,5 @@
 open Batteries
 open Type
-open PathTree
 open Effects
 open CfgPrinter
 
