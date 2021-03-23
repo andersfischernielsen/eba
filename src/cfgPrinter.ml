@@ -33,13 +33,13 @@ module MakeT (P: PrinterSpec) = struct
      already something like that exists. But helps for now. Eliminate. *)
   type vrmap = (int, name * name) BatMap.t
 
+
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
   let get_region e =
     match e with
     | Mem (_, region) -> Some (region, e)
     | _______________ -> None
-
 
 
   (* TODO: the function name is more specific than type *)
@@ -59,19 +59,41 @@ module MakeT (P: PrinterSpec) = struct
     | __________________ -> ()
 
 
+  (*  TODO does not belong here, and possibly exists elsewhere *)
+  (** Get the variable name and type name for region [r] stored in 
+      the vrmap [m].  Empty strings if not stored.  
+      TODO: shouldn't this be an assertion failure instead? *)
+  let vrmap_get (r: int) (m: vrmap): name * name =
+    Option.default ("", "") (BatMap.find_opt r m) 
+
+
+  (*  TODO does not belong here, and possibly exists elsewhere *)
+  (** Get the variable name of region [r] stored in the vrmap [m].
+      Empty string if not stored.  
+      TODO: shouldn't this be an assertion failure instead? 
+      TODO: unused*)
+  let vrmap_get_name (r: int) (m: vrmap): name = vrmap_get r m |> fst
+
+
   (* TODO very likely exists, or should exist elsewhere *)
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id r = Region.uniq_of r |> Uniq.to_int
 
-  (* TODO: a bit too many args ? *)
-  let state_region_string (region: region) (state: P.state) (map: vrmap) (calls: region list): name =
-    let variable_name identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> name | None ->"" in
-    (*let variable_name _identifier = lname in*)
-    let variable_type identifier = match Map.Exceptionless.find identifier map with | Some (_, _type)  -> _type | None ->"" in
-    let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_id c)) calls) in
-    Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s" (P.string_of_state state) (variable_name(region_id region))
-      (variable_type(region_id region)) (Region.pp region |> PP.to_string) calls_
+
+  (* TODO: a bit too many args? what is calls? *)
+  (** Translate a region [r] and state [s] information into a log entry
+      containing state, the lock name, the variable type and the region name,
+      plus all the regions involved in the calls *)
+  let region_state_string (r: region) (s: P.state) (m: vrmap) (calls: region list): string =
+    let sname = P.string_of_state s in
+    let vname, vtype = vrmap_get (region_id r) m in
+    let r_string = Region.pp r |> PP.to_string in
+    let regions = List.map (fun c -> vrmap_get_name (region_id c) m) calls in
+    let call_strings = String.concat ", " regions in
+      Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s"
+        sname vname vtype r_string call_strings
+
 
   let cil_tmp_dir = Hashtbl.create 50
 
@@ -234,7 +256,7 @@ module MakeT (P: PrinterSpec) = struct
                 List.iter (fun s ->
                     if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
                     then
-                        Printf.fprintf IO.stdout "{State:%s}" (state_region_string k s var_region_map call_regions)
+                        Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s var_region_map call_regions)
                   )v
               )interesting_monitors;
            Printf.fprintf IO.stdout "\n");
