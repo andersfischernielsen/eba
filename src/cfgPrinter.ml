@@ -63,7 +63,7 @@ module MakeT (P: PrinterSpec) = struct
   (** Get the variable name and type name for region [r] stored in 
       the vrmap [m].  Empty strings if not stored.  
       TODO: shouldn't this be an assertion failure instead? *)
-  let vrmap_get (r: int) (m: vrmap): name * name =
+  let vrmap_get (m: vrmap) (r: int): name * name =
     Option.default ("", "") (BatMap.find_opt r m) 
 
 
@@ -72,26 +72,31 @@ module MakeT (P: PrinterSpec) = struct
       Empty string if not stored.  
       TODO: shouldn't this be an assertion failure instead? 
       TODO: unused*)
-  let vrmap_get_name (r: int) (m: vrmap): name = vrmap_get r m |> fst
+  let vrmap_get_name (m: vrmap) (r: int): name = vrmap_get m r |> fst
 
 
   (* TODO very likely exists, or should exist elsewhere *)
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
-  let region_id r = Region.uniq_of r |> Uniq.to_int
+  let region_id (r: region): int = 
+    Region.uniq_of r |> Uniq.to_int
 
 
   (* TODO: a bit too many args? what is calls? *)
+  (* TODO: why are calls needed here? *)
   (** Translate a region [r] and state [s] information into a log entry
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
   let region_state_string (r: region) (s: P.state) (m: vrmap) (calls: region list): string =
+    let _ = assert_msg
+      ~msg: "region information is not defined in the var-region map!"
+     (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
-    let vname, vtype = vrmap_get (region_id r) m in
+    let vname, vtype = vrmap_get m (region_id r) in
     let r_string = Region.pp r |> PP.to_string in
-    let regions = List.map (fun c -> vrmap_get_name (region_id c) m) calls in
+    let regions = List.map (vrmap_get_name m % region_id) calls in
     let call_strings = String.concat ", " regions in
-      Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s"
+      Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s, FunCall:%s"
         sname vname vtype r_string call_strings
 
 
