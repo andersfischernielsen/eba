@@ -1,8 +1,55 @@
+(library
+ (name libeba)
+ (modules abs 
+          automataChecker
+          axioms
+          cfgPrinter
+          cfgPrinterDoubleLock
+          checkAutomataDoubleUnlock
+          checkBhOnIrqFlow2
+          checkDFreeFlow2
+          checkDLockFlow2  
+          checkDUnlockFlow2         
+          checkDUnlockFlow2Inverse
+          checkUAF
+          checkUninitFlow1  
+          cilExtra
+          env  
+          error
+          flow1Checker  
+          flow2Checker
+          gcc           
+          infer
+          lenv   
+          opts
+          pP
+          pathTree  
+          structs  
+          type
+          utils
+          uniq)
+ (libraries 
+    batteries 
+    cil 
+    ocamlgraph 
+    smart_print 
+    cmdliner 
+    dolog 
+    fpath))
+
 (executable
- (name eba)
- (package eba)
- (public_name eba)
- (libraries batteries cil ocamlgraph smart_print cmdliner dolog fpath))
+  (name eba)
+  (package eba)
+  (public_name eba)
+  (modules eba)
+  (libraries libeba))
+
+(test
+  (name cfgPrinter_test) 
+  (modules cfgPrinter_test)
+  (libraries ounit2 libeba))
+
+
 (env
   (_
     (flags (:standard -warn-error -A))))

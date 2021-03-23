@@ -1,6 +1,12 @@
 
 open Batteries
 
+let assert_msg ?(msg = "") cond = 
+  if not cond && msg <> "" then (
+    print_string (msg ^ "\n");
+    assert cond
+  )
+
 let compare_on f x y = Pervasives.compare (f x) (f y)
 
 let compare_first (x,_) (y,_) = Pervasives.compare x y

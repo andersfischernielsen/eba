@@ -3,6 +3,7 @@ open Batteries
 open Cmdliner
 open Dolog
 
+open Libeba
 open Abs
 
 module L = LazyList

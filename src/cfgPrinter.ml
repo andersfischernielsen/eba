@@ -5,6 +5,8 @@ open Abs
 open PathTree
 open Effects
 
+let assert_msg = Utils.assert_msg
+
 
 module type PrinterSpec = sig
 
@@ -26,7 +28,7 @@ module type Printer = sig
 end
 
 
-module Make (P: PrinterSpec): Printer = struct
+module MakeT (P: PrinterSpec) = struct
 
   (* AWTODO: this might be eliminatable *)
   let get_region e =
@@ -34,9 +36,15 @@ module Make (P: PrinterSpec): Printer = struct
     | Mem (_, region) -> Some (region, e)
     | _ -> None
 
-  let extract_regions r_es =
+  (* TODO: the function name is more specific than type *)
+  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list = begin
+
+    assert_msg ~msg: "extract_regions requires a non-empty list" 
+      (List.is_empty r_es |> not);
+
     let split = List.split r_es in
     (List.hd (fst split), (snd split))
+  end
 
   let find_variable r map func =
     let found = Map.Exceptionless.find r map in
@@ -273,3 +281,5 @@ module Make (P: PrinterSpec): Printer = struct
     explore_paths path_tree global_function Map.empty var_region_map inline_limit
 
 end
+
+module Make (P: PrinterSpec): Printer = MakeT (P)
