@@ -55,10 +55,11 @@ module MakeT (P: PrinterSpec) = struct
   (** Find the region (integer) [r] in the map [map] and 
       applies [func].  TODO: fishily-specific, likely 
       eliminatable or abstractable *)
-  let vrmap_iterate r (map: vrmap) (func: name -> name -> unit): unit =
-    match Map.Exceptionless.find r map with
-    | Some (name, type_) -> func type_ name
+  let vrmap_apply (r: int) (m: vrmap) (f: name -> name -> unit): unit =
+    match BatMap.find_opt r m with
+    | Some (name, type_) -> f type_ name
     | __________________ -> ()
+
 
   let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls =
     let region_identifier r = Region.uniq_of r |> Uniq.to_int in
@@ -242,7 +243,7 @@ module MakeT (P: PrinterSpec) = struct
               | Some r ->
                  let id = Region.uniq_of (fst r) |> Uniq.to_int in
                  Printf.fprintf IO.stdout "{Region:%i} " id;
-                 vrmap_iterate id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+                 vrmap_apply id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
               | None -> ();
                  Printf.fprintf IO.stdout "\n";
            ) (EffectSet.to_list step.effs.may);
