@@ -78,7 +78,7 @@ module MakeT (P: PrinterSpec) = struct
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id (r: region): int = 
-    Region.uniq_of r |> Uniq.to_int
+    r |> Region.uniq_of |> Uniq.to_int
 
 
   (* TODO: a bit too many args? what is calls? *)
