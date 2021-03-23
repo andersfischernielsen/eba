@@ -35,7 +35,9 @@
     smart_print 
     cmdliner 
     dolog 
-    fpath))
+    fpath
+    ounit2
+    ))
 
 (executable
   (name eba)
@@ -48,6 +50,12 @@
   (name cfgPrinter_test) 
   (modules cfgPrinter_test)
   (libraries ounit2 libeba))
+
+(test
+  (name type_test) 
+  (modules type_test)
+  (libraries ounit2 libeba))
+
 
 
 (env

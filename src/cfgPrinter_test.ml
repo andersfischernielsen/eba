@@ -7,7 +7,7 @@ module O = OUnitAssert
 (** A trivial test, sanity check that infrastructore works *)
 let test_extract_regions _ = 
   match O.raises (fun _ -> P.extract_regions []) with
-  | Some (Assert_failure _)  -> 
+  | Some (OUnitTest.OUnit_failure _)  -> 
       ()
   | Some (_) -> 
       failwith "should reject empty list with an Assert_failure" 

@@ -5,8 +5,7 @@ open Abs
 open PathTree
 open Effects
 
-let assert_msg = Utils.assert_msg
-
+module OU = OUnit2
 
 module type PrinterSpec = sig
 
@@ -44,8 +43,8 @@ module MakeT (P: PrinterSpec) = struct
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
-    let _ = assert_msg 
-      ~msg: "extract_regions requires a non-empty list" 
+    let _ = OU.assert_bool 
+      "extract_regions requires a non-empty list" 
       (List.is_empty r_es |> not) in
     let split = List.split r_es in
     (split |> fst |> List.hd, snd split)
@@ -70,12 +69,12 @@ module MakeT (P: PrinterSpec) = struct
   (*  TODO does not belong here, and possibly exists elsewhere *)
   (** Get the variable name of region [r] stored in the vrmap [m].
       Empty string if not stored.  
-      TODO: shouldn't this be an assertion failure instead? 
-      TODO: unused*)
+      TODO: shouldn't this be an assertion failure instead? *)
   let vrmap_get_name (m: vrmap) (r: int): name = vrmap_get m r |> fst
 
 
   (* TODO very likely exists, or should exist elsewhere *)
+  (* TODO this function does not create id *)
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id (r: region): int = 
@@ -88,9 +87,9 @@ module MakeT (P: PrinterSpec) = struct
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
   let region_state_string (r: region) (s: P.state) (m: vrmap) (calls: region list): string =
-    let _ = assert_msg
-      ~msg: "region information is not defined in the var-region map!"
-     (BatMap.mem (region_id r) m) in
+    let _ = OU.assert_bool 
+      "region info undefined in var-region map!"
+      (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
     let vname, vtype = vrmap_get m (region_id r) in
     let r_string = Region.pp r |> PP.to_string in

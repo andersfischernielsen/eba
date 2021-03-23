@@ -1,11 +1,6 @@
 
 open Batteries
-
-let assert_msg ?(msg = "") cond = 
-  if not cond && msg <> "" then (
-    print_string (msg ^ "\n");
-    assert cond
-  )
+open Dolog
 
 let compare_on f x y = Pervasives.compare (f x) (f y)
 
