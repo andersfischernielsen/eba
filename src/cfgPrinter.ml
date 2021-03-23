@@ -43,32 +43,35 @@ module MakeT (P: PrinterSpec) = struct
 
 
   (* TODO: the function name is more specific than type *)
-  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list = 
-    assert_msg 
-      ~msg: "extract_regions requires a non-empty list"
-      (List.is_empty r_es |> not);
+  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
+    let _ = assert_msg 
+      ~msg: "extract_regions requires a non-empty list" 
+      (List.is_empty r_es |> not) in
     let split = List.split r_es in
     (split |> fst |> List.hd, snd split)
 
 
-
-  (** Find the region (integer) [r] in the map [map] and 
-      applies [func].  TODO: fishily-specific, likely 
-      eliminatable or abstractable *)
+  (*  TODO appears specific, and possibly exists elsewhere *)
+  (** Find the region [r] in the map [map] and apply [func] *)
   let vrmap_apply (r: int) (m: vrmap) (f: name -> name -> unit): unit =
     match BatMap.find_opt r m with
     | Some (name, type_) -> f type_ name
     | __________________ -> ()
 
 
-  let generate_state_region_string region state (map:(int, name * name) BatMap.t) calls =
-    let region_identifier r = Region.uniq_of r |> Uniq.to_int in
+  (* TODO very likely exists, or should exist elsewhere *)
+  (** Convert a region name [r] to a unique integer identifier for its
+      unification class.*)
+  let region_id r = Region.uniq_of r |> Uniq.to_int
+
+  (* TODO: a bit too many args ? *)
+  let state_region_string (region: region) (state: P.state) (map: vrmap) (calls: region list): name =
     let variable_name identifier = match Map.Exceptionless.find identifier map with | Some (name, _type)  -> name | None ->"" in
     (*let variable_name _identifier = lname in*)
     let variable_type identifier = match Map.Exceptionless.find identifier map with | Some (_, _type)  -> _type | None ->"" in
-    let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_identifier c)) calls) in
-    Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s" (P.string_of_state state) (variable_name(region_identifier region))
-      (variable_type(region_identifier region)) (Region.pp region |> PP.to_string) calls_
+    let calls_ = String.concat ", " (List.map (fun c -> variable_name (region_id c)) calls) in
+    Format.sprintf "%s,LockName:%s,LockType:%s,LockRegion:%s,FunCall:%s" (P.string_of_state state) (variable_name(region_id region))
+      (variable_type(region_id region)) (Region.pp region |> PP.to_string) calls_
 
   let cil_tmp_dir = Hashtbl.create 50
 
@@ -120,7 +123,7 @@ module MakeT (P: PrinterSpec) = struct
        if not (Map.is_empty interesting_monitors)
        then
          begin
-           (* let ints = enum_regions step.effs |> List.of_enum |> List.map (fun r -> Region.uniq_of r |> Uniq.to_int) in *)
+           (* let ints = enum_regions step.effs |> List.of_enum |> List.map region_id in *)
            let lock_funs = ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
                             "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
                             "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
@@ -213,11 +216,11 @@ module MakeT (P: PrinterSpec) = struct
                                  ) interesting_monitors in
                Map.foldi (fun k _v acc ->
                    try
-                     let (vn,vt) = BatMap.find (Region.uniq_of k |> Uniq.to_int) var_region_map in
+                     let (vn,vt) = BatMap.find (region_id k) var_region_map in
                      if vn = lname then raise Not_found; (* Just set the lock name once *)
                      ignore(BatString.find lname vn);
-                     Printf.eprintf "Lock name set for region %d --> %s\n" (Region.uniq_of k |> Uniq.to_int) lname;
-                     BatMap.add (Region.uniq_of k |> Uniq.to_int) (lname,vt) acc
+                     Printf.eprintf "Lock name set for region %d --> %s\n" (region_id k) lname;
+                     BatMap.add (region_id k) (lname,vt) acc
                    with Not_found -> acc
                  ) c_regions var_region_map
              else
@@ -231,7 +234,7 @@ module MakeT (P: PrinterSpec) = struct
                 List.iter (fun s ->
                     if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
                     then
-                        Printf.fprintf IO.stdout "{State:%s}" (generate_state_region_string k s var_region_map call_regions)
+                        Printf.fprintf IO.stdout "{State:%s}" (state_region_string k s var_region_map call_regions)
                   )v
               )interesting_monitors;
            Printf.fprintf IO.stdout "\n");
@@ -241,7 +244,7 @@ module MakeT (P: PrinterSpec) = struct
                let region = get_region e in
                match region with
               | Some r ->
-                 let id = Region.uniq_of (fst r) |> Uniq.to_int in
+                 let id = region_id (fst r) in
                  Printf.fprintf IO.stdout "{Region:%i} " id;
                  vrmap_apply id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
               | None -> ();
@@ -269,7 +272,7 @@ module MakeT (P: PrinterSpec) = struct
     let var_region_map = Map.foldi (fun (k:Cil.varinfo) (v:Regions.t) acc ->
       let name = Cil.(k.vname) in
       let type_ = Cil.(k.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
-        Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) v acc
+        Regions.fold (fun r acc -> Map.add (region_id r) (name, type_) acc) v acc
     ) (AFile.global_variables_and_regions file) Map.empty in
     let append l1 l2 =
       let rec loop acc l1 l2 =
@@ -283,7 +286,7 @@ module MakeT (P: PrinterSpec) = struct
                                                                    let name = Cil.(e.vname) in
                                                                    let type_ = Cil.(e.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
                                                                    let regions = AFun.regions_of global_function e in
-                                                                   let added = Regions.fold (fun r acc -> Map.add (Region.uniq_of r |> Uniq.to_int) (name, type_) acc) regions acc in
+                                                                   let added = Regions.fold (fun r acc -> Map.add (region_id r) (name, type_) acc) regions acc in
                                                                    added
                                                                  ) var_region_map in
     let var_region_map = Map.filter (fun k _ -> k != -1) var_region_map in
