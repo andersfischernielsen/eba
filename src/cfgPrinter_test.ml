@@ -12,10 +12,10 @@ let test_extract_regions _ =
   | Some (_) -> 
       failwith "should reject empty list with an Assert_failure" 
   | None -> 
-      failwith "should reject an empty list" 
-
+      failwith "should reject an empty list";;
 
 let cfgPrinter_tests = "cfgPrinter" >::: [
-  "extract_regions" >:: test_extract_regions; ]
+  "extract_regions" >:: test_extract_regions; 
+  ]
 
 let _ = run_test_tt_main cfgPrinter_tests

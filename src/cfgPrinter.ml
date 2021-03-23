@@ -43,8 +43,9 @@ module MakeT (P: PrinterSpec) = struct
       (List.is_empty r_es |> not);
 
     let split = List.split r_es in
-    (List.hd (fst split), (snd split))
+      (List.hd (fst split), snd split)
   end
+
 
   let find_variable r map func =
     let found = Map.Exceptionless.find r map in
