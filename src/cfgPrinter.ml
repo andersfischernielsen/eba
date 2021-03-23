@@ -30,21 +30,20 @@ end
 
 module MakeT (P: PrinterSpec) = struct
 
-  (* AWTODO: this might be eliminatable *)
+  (* TODO: this might be eliminatable *)
+  (** Get region from a memory effect, ignore others *)
   let get_region e =
     match e with
     | Mem (_, region) -> Some (region, e)
     | _ -> None
 
+
   (* TODO: the function name is more specific than type *)
-  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list = begin
-
-    assert_msg ~msg: "extract_regions requires a non-empty list" 
+  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list = 
+    assert_msg ~msg: "extract_regions requires a non-empty list"
       (List.is_empty r_es |> not);
-
     let split = List.split r_es in
       (List.hd (fst split), snd split)
-  end
 
 
   let find_variable r map func =
