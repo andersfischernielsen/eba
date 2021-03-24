@@ -716,6 +716,8 @@ and Region : sig
 
 	val is_meta : t -> bool
 
+	val is_bound : t -> bool
+
 	(**
 	 * if_meta f ?r x = f ?r x
 	 * if_meta f 'r x = x
@@ -765,6 +767,8 @@ end = struct
 	let is_meta = function
 		| Meta _  -> true
 		| Bound _ -> false
+
+        let is_bound = not % is_meta
 
 	let if_meta f r x = Utils.apply_if (is_meta r) (f r) x
 

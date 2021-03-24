@@ -87,6 +87,8 @@ module MakeT (P: PrinterSpec) = struct
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
   let region_state_string (r: region) (s: P.state) (m: vrmap) (calls: region list): string =
+    let _ = OU.assert_bool "Regiom r is meta" (r |> Region.is_bound) in
+    let _ = OU.assert_bool "Meta in [calls]" (List.for_all Region.is_bound calls) in
     let _ = OU.assert_bool 
       "region info undefined in var-region map!"
       (BatMap.mem (region_id r) m) in
