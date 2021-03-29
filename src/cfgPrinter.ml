@@ -78,7 +78,7 @@ module MakeT (P: PrinterSpec) = struct
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id (r: region): int = 
-    r |> Region.uniq_of |> Uniq.to_int
+    r |>Region.zonk|> Region.uniq_of |> Uniq.to_int
 
 
   (* TODO: a bit too many args? what is calls? *)
@@ -86,19 +86,16 @@ module MakeT (P: PrinterSpec) = struct
   (** Translate a region [r] and state [s] information into a log entry
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
-  let region_state_string (r: region) (s: P.state) (m: vrmap) (calls: region list): string =
-    let _ = OU.assert_bool "Regiom r is meta" (r |> Region.is_bound) in
-    let _ = OU.assert_bool "Meta in [calls]" (List.for_all Region.is_bound calls) in
-    let _ = OU.assert_bool 
+  let region_state_string (r: region) (s: P.state) (m: vrmap): string =
+    let r_string = Region.pp r |> PP.to_string in
+    (*let _ = OU.assert_bool (Format.sprintf "Region r is meta %s" r_string) (r |> Region.is_bound) in*)
+    (*let _ = OU.assert_bool 
       "region info undefined in var-region map!"
-      (BatMap.mem (region_id r) m) in
+      (BatMap.mem (region_id r) m) in *)
     let sname = P.string_of_state s in
     let vname, vtype = vrmap_get m (region_id r) in
-    let r_string = Region.pp r |> PP.to_string in
-    let regions = List.map (vrmap_get_name m % region_id) calls in
-    let call_strings = String.concat ", " regions in
-      Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s, FunCall:%s"
-        sname vname vtype r_string call_strings
+      Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
+        sname vname vtype r_string
 
 
   let cil_tmp_dir = Hashtbl.create 50
@@ -108,15 +105,10 @@ module MakeT (P: PrinterSpec) = struct
     match p with
     | Seq(step, remaining) ->
        let apply_transition effects map_to_add_to =
-         let result = List.fold_right (fun (r_e:region * e list) map ->
-         match r_e with
-         | r, es ->
-           let initial : P.state list = [P.initial_state] in
-           let result : P.state list = Map.find_default initial r map_to_add_to in
-           let applied = List.map (fun s -> P.transition s es) result
-           in
-           Map.add r applied map) effects map_to_add_to in
-         result
+         List.fold_right (fun ((r,es):region * e list) map ->
+             let states  = Map.find_default [P.initial_state] r map_to_add_to in
+             let applied = List.map (fun s -> P.transition s es) states in
+             Map.add r applied map) effects map_to_add_to
        in
 
        let call_present = find_in_stmt (fun is ->
@@ -136,7 +128,7 @@ module MakeT (P: PrinterSpec) = struct
          | Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
          | _ -> ()
        else
-         Printf.fprintf IO.stdout "";
+         Printf.fprintf IO.stdout ""; 
 
        let input = step.effs.may |> EffectSet.to_list in
        let region_options = List.map get_region input in
@@ -152,13 +144,15 @@ module MakeT (P: PrinterSpec) = struct
        then
          begin
            (* let ints = enum_regions step.effs |> List.of_enum |> List.map region_id in *)
-           let lock_funs = ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
-                            "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
-                            "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
-                            "spin_lock_irqsave";"spin_lock_bh";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";"__raw_spin_unlock";
-                            "_raw_read_unlock";"__raw_read_unlock";"_raw_spin_unlock_irq";"__raw_spin_unlock_irq";
-                            "_raw_spin_unlock_irqrestore";"_raw_spin_unlock_bh";"spin_unlock_irqrestore";"spin_unlock";
-                            "spin_unlock_irqrestore";"spin_unlock_bh"] in
+           let lock_funs =
+             ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
+              "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
+              "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
+              "spin_lock_irqsave";"spin_lock_bh";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";
+              "__raw_spin_unlock";
+              "_raw_read_unlock";"__raw_read_unlock";"_raw_spin_unlock_irq";"__raw_spin_unlock_irq";
+              "_raw_spin_unlock_irqrestore";"_raw_spin_unlock_bh";"spin_unlock_irqrestore";"spin_unlock";
+              "spin_unlock_irqrestore";"spin_unlock_bh"] in
            (* Gets the name of the expression involving a call,
             it is for function name or arguments
             although it works over expressions *)
@@ -223,25 +217,29 @@ module MakeT (P: PrinterSpec) = struct
            let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in
            let var_region_map =
              if lname <> "" then
-               let lname = if BatString.starts_with lname "tmp" then
-                             try
-                               let l_ref = ref "tmp" in
-                               while BatString.starts_with !l_ref "tmp" do
-                                 l_ref := Hashtbl.find cil_tmp_dir lname
-                               done;
-                               Printf.eprintf "%s\n" !l_ref;
-                               !l_ref
-                             with Not_found -> Printf.eprintf "Warning: tmp lock name not found in directory\n"; lname
-                           else
-                             begin
-                             Printf.eprintf "%s\n" lname;
-                             lname
-                             end
+               let lname =
+                 if BatString.starts_with lname "tmp" then
+                   try
+                     let l_ref = ref "tmp" in
+                     while BatString.starts_with !l_ref "tmp" do
+                       l_ref := Hashtbl.find cil_tmp_dir lname
+                     done;
+                     Printf.eprintf "%s\n" !l_ref;
+                     !l_ref
+                   with Not_found ->
+                     Printf.eprintf "Warning: tmp lock name not found in directory\n"; lname
+                 else
+                   begin
+                     Printf.eprintf "%s\n" lname;
+                     lname
+                   end
                in
 
-               let c_regions = Map.filter (fun _k v ->
-                                   List.exists (fun s -> P.string_of_state s = "Locked" || P.string_of_state s = "Unlocked") v
-                                 ) interesting_monitors in
+               let c_regions =
+                 Map.filter (fun _k v ->
+                     List.exists (fun s -> P.string_of_state s = "Locked" ||
+                                             P.string_of_state s = "Unlocked") v
+                   ) interesting_monitors in
                Map.foldi (fun k _v acc ->
                    try
                      let (vn,vt) = BatMap.find (region_id k) var_region_map in
@@ -255,14 +253,14 @@ module MakeT (P: PrinterSpec) = struct
                var_region_map
            in
 
-           Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s" (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
+           Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s"
+             (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
            Printf.fprintf IO.stdout ":endStatements\n";
-           let call_regions = List.filter_map (fun e -> match e with Mem(Call, r) -> Some r | _ -> None) input in
            (Map.iter (fun k v ->
                 List.iter (fun s ->
                     if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
                     then
-                        Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s var_region_map call_regions)
+                        Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s var_region_map)
                   )v
               )interesting_monitors;
            Printf.fprintf IO.stdout "\n");

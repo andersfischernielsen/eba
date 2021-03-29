@@ -21,6 +21,7 @@ let bound_region_unification _ =
   let zr1, zr2 = Region.to_string (Region.zonk r1), Region.to_string (Region.zonk r2) in
   let post_msg = Printf.sprintf "Region zonks after unification equal! (%s, %s)" zr1 zr2 in
   let _ = assert_bool post_msg (Region.equal (Region.zonk r1) (Region.zonk r2)) in
+  let _ = assert_bool pre_msg (Region.equal r1 r2 |> not) in
 
   let id1, id2 = P.region_id r1, P.region_id r2 in
   let sid1, sid2 =  string_of_int id1, string_of_int id2 in
