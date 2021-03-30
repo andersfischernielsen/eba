@@ -4,8 +4,6 @@ open Type
 open Abs
 open BatTuple.Tuple2
 
-module OU = OUnit2
-
 module type PrinterSpec = sig
 
   type state
@@ -27,6 +25,8 @@ end
 
 module MakeT (P: PrinterSpec) = struct
 
+  let assert_bool = OUnit2.assert_bool;;
+
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
@@ -44,8 +44,7 @@ module MakeT (P: PrinterSpec) = struct
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
-    let _ = OU.assert_bool
-      "extract_regions requires a non-empty list"
+    let _ = assert_bool "extract_regions requires a non-empty list"
       (List.is_empty r_es |> not) in
     let split = List.split r_es in
     (split |> fst |> List.hd, snd split)
@@ -98,8 +97,9 @@ module MakeT (P: PrinterSpec) = struct
       plus all the regions involved in the calls *)
   let region_state_string (r: region) (s: P.state) (m: rvtmap): string =
     let r_string = Region.pp r |> PP.to_string in
-    let _ = OU.assert_bool (Format.sprintf "Region r is bound %s" r_string) (Region.is_meta r) in
-    let _ = OU.assert_bool
+    let _ = assert_bool (Format.sprintf "Region r is bound %s" r_string)
+      (Region.is_meta r) in
+    let _ = assert_bool
       "region info undefined in var-region map!"
       (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
@@ -315,8 +315,8 @@ module MakeT (P: PrinterSpec) = struct
     let path_tree = PathTree.paths_of func in
       (* TODO: printed prematurely, kept here for backwards traceability *)
       loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
-      OU.assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
-      OU.assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
+      assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
+      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
       explore_paths path_tree func Map.empty rvtmap inline_limit;;
 
 end
