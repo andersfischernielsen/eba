@@ -54,3 +54,5 @@ let indent = SP.indent
 let words = SP.words
 
 let to_string = SP.to_string 70 4
+
+let to_stdout = SP.to_stdout 70 4
