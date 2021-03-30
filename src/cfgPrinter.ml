@@ -306,8 +306,6 @@ module MakeT (P: PrinterSpec) = struct
       [file] and prints the coloring for the lines traversed (according to a
       lock monitor). *)
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
-    let _ = loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout in
-    (* TODO: above printed prematurely, kept here for backwards traceability *)
     let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in
     let global = AFile.global_variables_and_regions file |> Map.to_seq in
     let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
@@ -315,6 +313,8 @@ module MakeT (P: PrinterSpec) = struct
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
+      (* TODO: printed prematurely, kept here for backwards traceability *)
+      loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
       OU.assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       OU.assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
       explore_paths path_tree func Map.empty rvtmap inline_limit;;
