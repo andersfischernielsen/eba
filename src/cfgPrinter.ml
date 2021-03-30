@@ -2,7 +2,6 @@ open Batteries
 
 open Type
 open Abs
-open PathTree
 open Effects
 
 module OU = OUnit2
@@ -78,7 +77,7 @@ module MakeT (P: PrinterSpec) = struct
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id (r: region): int = 
-    r |>Region.zonk|> Region.uniq_of |> Uniq.to_int
+    r |> Region.zonk |> Region.uniq_of |> Uniq.to_int
 
 
   (* TODO: a bit too many args? what is calls? *)
@@ -88,10 +87,10 @@ module MakeT (P: PrinterSpec) = struct
       plus all the regions involved in the calls *)
   let region_state_string (r: region) (s: P.state) (m: vrmap): string =
     let r_string = Region.pp r |> PP.to_string in
-    (*let _ = OU.assert_bool (Format.sprintf "Region r is meta %s" r_string) (r |> Region.is_bound) in*)
-    (*let _ = OU.assert_bool 
+    let _ = OU.assert_bool (Format.sprintf "Region r is bound %s" r_string) (Region.is_meta r) in
+    let _ = OU.assert_bool 
       "region info undefined in var-region map!"
-      (BatMap.mem (region_id r) m) in *)
+      (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
     let vname, vtype = vrmap_get m (region_id r) in
       Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
@@ -100,7 +99,7 @@ module MakeT (P: PrinterSpec) = struct
 
   let cil_tmp_dir = Hashtbl.create 50
 
-  let rec explore_paths path func map var_region_map inline_limit =
+  let rec explore_paths (path: unit -> PathTree.t) func map var_region_map inline_limit =
     let p = path() in
     match p with
     | Seq(step, remaining) ->
@@ -111,7 +110,7 @@ module MakeT (P: PrinterSpec) = struct
              Map.add r applied map) effects map_to_add_to
        in
 
-       let call_present = find_in_stmt (fun is ->
+       let call_present = PathTree.find_in_stmt (fun is ->
          if List.exists (fun i ->
                 match i with
                 | Cil.(Call _) -> true
@@ -123,7 +122,7 @@ module MakeT (P: PrinterSpec) = struct
 
        if Option.is_some call_present && inline_limit > 0
        then
-         let inlined = inline func step in
+         let inlined = PathTree.inline func step in
          match inlined with
          | Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
          | _ -> ()
@@ -254,7 +253,7 @@ module MakeT (P: PrinterSpec) = struct
            in
 
            Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s"
-             (Utils.Location.pp step.sloc |> PP.to_string) (pp_step step |> PP.to_string);
+             (Utils.Location.pp step.sloc |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
            Printf.fprintf IO.stdout ":endStatements\n";
            (Map.iter (fun k v ->
                 List.iter (fun s ->
@@ -293,7 +292,7 @@ module MakeT (P: PrinterSpec) = struct
     let _, global_function = Option.get(AFile.find_fun file variable_info) in
     Printf.fprintf IO.stdout "---------\n";
     Printf.fprintf IO.stdout "FileName:%s:FunName:%s:LineNum:%i:\n" variable_info.vdecl.file variable_info.vname  variable_info.vdecl.line;
-    let path_tree = paths_of global_function in
+    let path_tree = PathTree.paths_of global_function in
 
     let var_region_map = Map.foldi (fun (k:Cil.varinfo) (v:Regions.t) acc ->
       let name = Cil.(k.vname) in
