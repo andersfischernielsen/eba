@@ -1,9 +1,8 @@
 open Batteries
 open Type
 open Effects
-open CfgPrinter
 
-module Spec: PrinterSpec = struct 
+module Spec: CfgPrinter.PrinterSpec = struct 
 
     type state = 
 		| Initial
@@ -54,5 +53,5 @@ module Spec: PrinterSpec = struct
 		| _ 		-> ""
 end 
 
-module Printer = Make(Spec)
+module Printer = CfgPrinter.Make(Spec)
 include Printer
