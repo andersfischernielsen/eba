@@ -314,11 +314,9 @@ module MakeT (P: PrinterSpec) = struct
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
-    let _ = OU.assert_bool ("Duplicate regions!")  (* TODO: fails, why? *)
-      (Map.cardinal rvtmap = Seq.length rvtseq) in
-    let _ = OU.assert_bool ("Regions with id -1!")
-      (Map.for_all (fun k _ -> k != -1) rvtmap) in
     let path_tree = PathTree.paths_of func in
+      OU.assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
+      OU.assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
       explore_paths path_tree func Map.empty rvtmap inline_limit;;
 
 end
