@@ -94,7 +94,7 @@ module MakeT (P: PrinterSpec) = struct
     let sname = P.string_of_state s in
     let vname, vtype = vrmap_get m (region_id r) in
       Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
-        sname vname vtype r_string
+        sname vname vtype r_string ;;
 
 
   let cil_tmp_dir = Hashtbl.create 50
@@ -299,15 +299,7 @@ module MakeT (P: PrinterSpec) = struct
       let type_ = Cil.(k.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
         Regions.fold (fun r acc -> Map.add (region_id r) (name, type_) acc) v acc
     ) (AFile.global_variables_and_regions file) Map.empty in
-    let append l1 l2 =
-      let rec loop acc l1 l2 =
-        match l1, l2 with
-        | [], [] -> List.rev acc
-        | [], h :: t -> loop (h :: acc) [] t
-        | h :: t, l -> loop (h :: acc) t l
-      in
-      loop [] l1 l2 in
-    let var_region_map = append Cil.(declaration.sformals) Cil.(declaration.slocals) |> List.fold_left (fun acc e ->
+    let var_region_map = (Cil.(declaration.sformals) @ Cil.(declaration.slocals)) |> List.fold_left (fun acc e ->
                                                                    let name = Cil.(e.vname) in
                                                                    let type_ = Cil.(e.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
                                                                    let regions = AFun.regions_of global_function e in
