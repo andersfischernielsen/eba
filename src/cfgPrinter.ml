@@ -74,7 +74,7 @@ module MakeT (P: PrinterSpec) = struct
 
 
   (* TODO very likely exists, or should exist elsewhere *)
-  (* TODO this function does not create id *)
+  (* TODO this function does not return id of an equivalence class *)
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
   let region_id (r: region): int = 
