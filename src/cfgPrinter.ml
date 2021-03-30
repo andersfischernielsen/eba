@@ -2,17 +2,17 @@ open Batteries
 
 open Type
 open Abs
-open Effects
+open BatTuple.Tuple2
 
 module OU = OUnit2
 
 module type PrinterSpec = sig
 
   type state
-  val transition: state -> e list -> state
+  val transition: state -> Effects.e list -> state
   val is_in_interesting_section: state -> bool
   val initial_state: state
-  val is_in_transition_labels: e -> bool
+  val is_in_transition_labels: Effects.e -> bool
   val is_in_final_state: state -> bool
   val string_of_state: state -> string
 
@@ -29,16 +29,18 @@ module MakeT (P: PrinterSpec) = struct
 
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
-  type vrmap = (int, name * name) BatMap.t
-
+  (** maps a region number to a variable name and a type name/string *)
+  type rvtmap = (int, name * name) BatMap.t
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
   let get_region e =
     match e with
-    | Mem (_, region) -> Some (region, e)
-    | _______________ -> None
+    | Effects.Mem (_, region) -> Some (region, e)
+    | _______________________ -> None;;
 
+  let ty_name (v: Cil.varinfo): name = 
+    Cil.d_type () v.vtype |> Pretty.sprint ~width:80;;
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
@@ -49,29 +51,6 @@ module MakeT (P: PrinterSpec) = struct
     (split |> fst |> List.hd, snd split)
 
 
-  (*  TODO appears specific, and possibly exists elsewhere *)
-  (** Find the region [r] in the map [map] and apply [func] *)
-  let vrmap_apply (r: int) (m: vrmap) (f: name -> name -> unit): unit =
-    match BatMap.find_opt r m with
-    | Some (name, type_) -> f type_ name
-    | __________________ -> ()
-
-
-  (*  TODO does not belong here, and possibly exists elsewhere *)
-  (** Get the variable name and type name for region [r] stored in 
-      the vrmap [m].  Empty strings if not stored.  
-      TODO: shouldn't this be an assertion failure instead? *)
-  let vrmap_get (m: vrmap) (r: int): name * name =
-    Option.default ("", "") (BatMap.find_opt r m) 
-
-
-  (*  TODO does not belong here, and possibly exists elsewhere *)
-  (** Get the variable name of region [r] stored in the vrmap [m].
-      Empty string if not stored.  
-      TODO: shouldn't this be an assertion failure instead? *)
-  let vrmap_get_name (m: vrmap) (r: int): name = vrmap_get m r |> fst
-
-
   (* TODO very likely exists, or should exist elsewhere *)
   (* TODO this function does not return id of an equivalence class *)
   (** Convert a region name [r] to a unique integer identifier for its
@@ -79,23 +58,58 @@ module MakeT (P: PrinterSpec) = struct
   let region_id (r: region): int = 
     r |> Region.zonk |> Region.uniq_of |> Uniq.to_int
 
+  
+  (* TODO: this might go if we kill rvt maps altogether *)
+  (** Create an association list of region ids to variable-type name pairs.
+      Used in constructing rvt maps from eba mappings *)
+  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (int * (name * name)) Seq.t = 
+    Seq.map (fun r -> (region_id r, (v.vname, ty_name v))) (Regions.to_seq rr);;
+
+
+
+  (*  TODO appears specific, and possibly exists elsewhere *)
+  (** Find the region [r] in the map [map] and apply [func] *)
+  let rvtmap_apply (r: int) (m: rvtmap) (f: name -> name -> unit): unit =
+    match BatMap.find_opt r m with
+    | Some (name, type_) -> f type_ name
+    | __________________ -> ()
+
+
+  (*  TODO does not belong here, and possibly exists elsewhere *)
+  (** Get the variable name and type name for region [r] stored in 
+      the rvtmap [m].  Empty strings if not stored.  
+      TODO: shouldn't this be an assertion failure instead? *)
+  let rvtmap_get (m: rvtmap) (r: int): name * name =
+    Option.default ("", "") (BatMap.find_opt r m) 
+
+
+  (*  TODO does not belong here, and possibly exists elsewhere *)
+  (** Get the variable name of region [r] stored in the rvtmap [m].
+      Empty string if not stored.  
+      TODO: shouldn't this be an assertion failure instead? *)
+  let rvtmap_get_name (m: rvtmap) (r: int): name = rvtmap_get m r |> fst
+
+
 
   (* TODO: a bit too many args? what is calls? *)
   (* TODO: why are calls needed here? *)
   (** Translate a region [r] and state [s] information into a log entry
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
-  let region_state_string (r: region) (s: P.state) (m: vrmap): string =
+  let region_state_string (r: region) (s: P.state) (m: rvtmap): string =
     let r_string = Region.pp r |> PP.to_string in
     let _ = OU.assert_bool (Format.sprintf "Region r is bound %s" r_string) (Region.is_meta r) in
     let _ = OU.assert_bool 
       "region info undefined in var-region map!"
       (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
-    let vname, vtype = vrmap_get m (region_id r) in
+    let vname, vtype = rvtmap_get m (region_id r) in
       Format.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
 
+  (** Print a file location including a function name *)
+  let loc_prefix (l: Cil.location) (fname: string): PP.doc = 
+    PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
 
   let cil_tmp_dir = Hashtbl.create 50
 
@@ -104,7 +118,7 @@ module MakeT (P: PrinterSpec) = struct
     match p with
     | Seq(step, remaining) ->
        let apply_transition effects map_to_add_to =
-         List.fold_right (fun ((r,es):region * e list) map ->
+         List.fold_right (fun ((r,es):region * Effects.e list) map ->
              let states  = Map.find_default [P.initial_state] r map_to_add_to in
              let applied = List.map (fun s -> P.transition s es) states in
              Map.add r applied map) effects map_to_add_to
@@ -129,7 +143,7 @@ module MakeT (P: PrinterSpec) = struct
        else
          Printf.fprintf IO.stdout ""; 
 
-       let input = step.effs.may |> EffectSet.to_list in
+       let input = step.effs.may |> Effects.EffectSet.to_list in
        let region_options = List.map get_region input in
        let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in
 
@@ -252,9 +266,10 @@ module MakeT (P: PrinterSpec) = struct
                var_region_map
            in
 
-           Printf.fprintf IO.stdout "FileName/LineNum:%s:Statements:%s"
-             (Utils.Location.pp step.sloc |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
-           Printf.fprintf IO.stdout ":endStatements\n";
+
+           (* TODO: the "" below should be replaced with function name, or we should refactor it away *)
+           Printf.fprintf IO.stdout "%s:%s\n"
+             (loc_prefix step.sloc "" |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
            (Map.iter (fun k v ->
                 List.iter (fun s ->
                     if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
@@ -265,16 +280,16 @@ module MakeT (P: PrinterSpec) = struct
            Printf.fprintf IO.stdout "\n");
 
            List.iter (fun e ->
-               pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{Effect:%s}";
+               Effects.pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{Effect:%s}";
                let region = get_region e in
                match region with
               | Some r ->
                  let id = region_id (fst r) in
                  Printf.fprintf IO.stdout "{Region:%i} " id;
-                 vrmap_apply id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+                 rvtmap_apply id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
               | None -> ();
                  Printf.fprintf IO.stdout "\n";
-           ) (EffectSet.to_list step.effs.may);
+           ) (Effects.EffectSet.to_list step.effs.may);
            Printf.fprintf IO.stdout "\n";
 
         let without_monitors_in_final_states = Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
@@ -285,29 +300,25 @@ module MakeT (P: PrinterSpec) = struct
     | If(true_path, false_path) ->
        explore_paths true_path func map var_region_map inline_limit;
        explore_paths false_path func map var_region_map inline_limit
-    | Nil -> ()
+    | Nil -> ();;
 
-  let print file declaration inline_limit =
-    let variable_info = Cil.(declaration.svar) in
-    let _, global_function = Option.get(AFile.find_fun file variable_info) in
-    Printf.fprintf IO.stdout "---------\n";
-    Printf.fprintf IO.stdout "FileName:%s:FunName:%s:LineNum:%i:\n" variable_info.vdecl.file variable_info.vname  variable_info.vdecl.line;
-    let path_tree = PathTree.paths_of global_function in
 
-    let var_region_map = Map.foldi (fun (k:Cil.varinfo) (v:Regions.t) acc ->
-      let name = Cil.(k.vname) in
-      let type_ = Cil.(k.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
-        Regions.fold (fun r acc -> Map.add (region_id r) (name, type_) acc) v acc
-    ) (AFile.global_variables_and_regions file) Map.empty in
-    let var_region_map = (Cil.(declaration.sformals) @ Cil.(declaration.slocals)) |> List.fold_left (fun acc e ->
-                                                                   let name = Cil.(e.vname) in
-                                                                   let type_ = Cil.(e.vtype) |> Cil.d_type () |> Pretty.sprint ~width:80 in
-                                                                   let regions = AFun.regions_of global_function e in
-                                                                   let added = Regions.fold (fun r acc -> Map.add (region_id r) (name, type_) acc) regions acc in
-                                                                   added
-                                                                 ) var_region_map in
-    let var_region_map = Map.filter (fun k _ -> k != -1) var_region_map in
-    explore_paths path_tree global_function Map.empty var_region_map inline_limit
+  (** This is the main function of the module. It explores the paths in the
+      [file] and prints the coloring for the lines traversed (according to a
+      lock monitor). *)
+  let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
+    let _ = loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout in
+    (* TODO: above printed prematurely, kept here for backwards traceability *)
+    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in 
+    let global = AFile.global_variables_and_regions file |> Map.to_seq in
+    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list 
+      |> Seq.map (fun e -> e, AFun.regions_of func e) in
+    let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
+    let rvtmap = Map.filter (fun k _ -> k != -1) (Map.of_seq rvtseq) in
+    let _ = OU.assert_bool ("Duplicate regions or -1!")  (* TODO: fails, why? *)
+      (Map.cardinal rvtmap = Seq.length rvtseq) in
+    let path_tree = PathTree.paths_of func in
+      explore_paths path_tree func Map.empty rvtmap inline_limit
 
 end
 
