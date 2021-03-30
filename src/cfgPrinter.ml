@@ -39,13 +39,13 @@ module MakeT (P: PrinterSpec) = struct
     | Effects.Mem (_, region) -> Some (region, e)
     | _______________________ -> None;;
 
-  let ty_name (v: Cil.varinfo): name = 
+  let ty_name (v: Cil.varinfo): name =
     Cil.d_type () v.vtype |> Pretty.sprint ~width:80;;
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
-    let _ = OU.assert_bool 
-      "extract_regions requires a non-empty list" 
+    let _ = OU.assert_bool
+      "extract_regions requires a non-empty list"
       (List.is_empty r_es |> not) in
     let split = List.split r_es in
     (split |> fst |> List.hd, snd split)
@@ -55,14 +55,14 @@ module MakeT (P: PrinterSpec) = struct
   (* TODO this function does not return id of an equivalence class *)
   (** Convert a region name [r] to a unique integer identifier for its
       unification class.*)
-  let region_id (r: region): int = 
+  let region_id (r: region): int =
     r |> Region.zonk |> Region.uniq_of |> Uniq.to_int
 
-  
+
   (* TODO: this might go if we kill rvt maps altogether *)
   (** Create an association list of region ids to variable-type name pairs.
       Used in constructing rvt maps from eba mappings *)
-  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (int * (name * name)) Seq.t = 
+  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (int * (name * name)) Seq.t =
     Seq.map (fun r -> (region_id r, (v.vname, ty_name v))) (Regions.to_seq rr);;
 
 
@@ -76,16 +76,16 @@ module MakeT (P: PrinterSpec) = struct
 
 
   (*  TODO does not belong here, and possibly exists elsewhere *)
-  (** Get the variable name and type name for region [r] stored in 
-      the rvtmap [m].  Empty strings if not stored.  
+  (** Get the variable name and type name for region [r] stored in
+      the rvtmap [m].  Empty strings if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
   let rvtmap_get (m: rvtmap) (r: int): name * name =
-    Option.default ("", "") (BatMap.find_opt r m) 
+    Option.default ("", "") (BatMap.find_opt r m)
 
 
   (*  TODO does not belong here, and possibly exists elsewhere *)
   (** Get the variable name of region [r] stored in the rvtmap [m].
-      Empty string if not stored.  
+      Empty string if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
   let rvtmap_get_name (m: rvtmap) (r: int): name = rvtmap_get m r |> fst
 
@@ -99,7 +99,7 @@ module MakeT (P: PrinterSpec) = struct
   let region_state_string (r: region) (s: P.state) (m: rvtmap): string =
     let r_string = Region.pp r |> PP.to_string in
     let _ = OU.assert_bool (Format.sprintf "Region r is bound %s" r_string) (Region.is_meta r) in
-    let _ = OU.assert_bool 
+    let _ = OU.assert_bool
       "region info undefined in var-region map!"
       (BatMap.mem (region_id r) m) in
     let sname = P.string_of_state s in
@@ -108,7 +108,7 @@ module MakeT (P: PrinterSpec) = struct
         sname vname vtype r_string ;;
 
   (** Print a file location including a function name *)
-  let loc_prefix (l: Cil.location) (fname: string): PP.doc = 
+  let loc_prefix (l: Cil.location) (fname: string): PP.doc =
     PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
 
   let cil_tmp_dir = Hashtbl.create 50
@@ -141,7 +141,7 @@ module MakeT (P: PrinterSpec) = struct
          | Some (_, res) -> explore_paths res func map var_region_map (inline_limit-1)
          | _ -> ()
        else
-         Printf.fprintf IO.stdout ""; 
+         Printf.fprintf IO.stdout "";
 
        let input = step.effs.may |> Effects.EffectSet.to_list in
        let region_options = List.map get_region input in
@@ -309,9 +309,9 @@ module MakeT (P: PrinterSpec) = struct
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
     let _ = loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout in
     (* TODO: above printed prematurely, kept here for backwards traceability *)
-    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in 
+    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in
     let global = AFile.global_variables_and_regions file |> Map.to_seq in
-    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list 
+    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.filter (fun k _ -> k != -1) (Map.of_seq rvtseq) in
