@@ -114,8 +114,7 @@ module MakeT (P: PrinterSpec) = struct
   let cil_tmp_dir = Hashtbl.create 50
 
   let rec explore_paths (path: unit -> PathTree.t) func map var_region_map inline_limit =
-    let p = path() in
-    match p with
+    match path () with
     | Seq(step, remaining) ->
        let apply_transition effects map_to_add_to =
          List.fold_right (fun ((r,es):region * Effects.e list) map ->
@@ -314,11 +313,13 @@ module MakeT (P: PrinterSpec) = struct
     let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
-    let rvtmap = Map.filter (fun k _ -> k != -1) (Map.of_seq rvtseq) in
-    let _ = OU.assert_bool ("Duplicate regions or -1!")  (* TODO: fails, why? *)
+    let rvtmap = Map.of_seq rvtseq in
+    let _ = OU.assert_bool ("Duplicate regions!")  (* TODO: fails, why? *)
       (Map.cardinal rvtmap = Seq.length rvtseq) in
+    let _ = OU.assert_bool ("Regions with id -1!")
+      (Map.for_all (fun k _ -> k != -1) rvtmap) in
     let path_tree = PathTree.paths_of func in
-      explore_paths path_tree func Map.empty rvtmap inline_limit
+      explore_paths path_tree func Map.empty rvtmap inline_limit;;
 
 end
 
