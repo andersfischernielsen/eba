@@ -57,11 +57,19 @@ module MakeT (P: PrinterSpec) = struct
     "spin_unlock_bh";
   ];;
 
+  (* TODO: likely belongs elsewhere. The monitor? *)
   let is_locking (i: Cil.instr): bool =
     match i with
     | Call (_, Lval (Var name, _), _, _) ->
         List.exists ((=) name.vname) lock_functions
     | __________________________________ -> false ;;
+
+
+  (* TODO: likely belongs elsewhere. Util? *)
+  let is_call (instr: Cil.instr): bool =
+    match instr with
+    | Cil.(Call _) -> true
+    | ____________ -> false ;;
 
 
   (* TODO: this is not the right module to define this type, and perhaps
@@ -177,8 +185,7 @@ module MakeT (P: PrinterSpec) = struct
 
 
   and do_step (step: PathTree.step) (func: AFun.t)
-    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int)
-      =
+    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
     let apply_transition effects map_to_add_to =
       List.fold_right (fun ((r,es): region * Effects.e list) map ->
           let states  = Map.find_default [P.initial_state] r map_to_add_to in
@@ -186,14 +193,8 @@ module MakeT (P: PrinterSpec) = struct
           Map.add r applied map) effects map_to_add_to
     in
 
-    let call_present = PathTree.find_in_stmt (fun is ->
-      if List.exists (fun i ->
-             match i with
-             | Cil.(Call _) -> true
-             | _ -> false) is
-      then Some(true)
-      else None)
-      step
+    let call_present =
+      PathTree.find_in_stmt (fun is -> if List.exists is_call is then Some(true) else None) step
     in
 
     if Option.is_some call_present && inline_limit > 0
