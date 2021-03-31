@@ -76,6 +76,8 @@ module MakeT (Monitor: PrinterSpec) = struct
      already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
   type rvtmap = (int, name * name) BatMap.t
+  type color = Black | Red
+  type 'a of_steps = (PathTree.step, 'a) BatMap.t
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
@@ -160,6 +162,35 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   let cil_tmp_dir = Hashtbl.create 50
 
+  (* TODO: temporary type to have one place of definition, definitely still messy *)
+  type print_state = color of_steps * (region, Monitor.state list) Map.t * rvtmap
+
+
+  (* TODO: We seem to be monitoring which automaton for which region was in which
+     state, but we are ignoring program states *)
+  let apply_transitions (rsmap: (region, Monitor.state list) Map.t)
+    (efmap: (region, Effects.e list) Map.t): (region, Monitor.state list) Map.t =
+
+    (* TODO: this arbitrarily prefers locks over unlocks! *)
+    let apply1 _ (s: Monitor.state list option) (e: Effects.e list option) : Monitor.state list option =
+      Some (s |? [Monitor.initial_state] |> List.map (flip Monitor.transition (e |? [])))
+    in Map.merge apply1 rsmap efmap ;;
+
+
+  let step_over (print_state: print_state) (step: PathTree.step): print_state =
+    (* TODO: now I have wired rsmap1 to be used here, but not other state elements *)
+    let cmap, rsmap, rvtmap = print_state in
+    let rsmap1 = step.effs.may
+      |> Effects.EffectSet.filter Monitor.is_in_transition_labels
+      |> Effects.EffectSet.to_list
+      |> List.filter_map get_region
+      |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
+      |> List.map extract_regions
+      |> Seq.of_list
+      |> Map.of_seq
+      |> apply_transitions rsmap
+    in cmap, rsmap1, rvtmap ;;
+
 
   (* TODO: it might be beneficial to use the PP and return it - this should
       make the printer much faster, and pure *)
@@ -167,77 +198,46 @@ module MakeT (Monitor: PrinterSpec) = struct
      needed. The refactoring of this function is not finished, as I decided that
      do_step has bigger benefits to gain - and also the coroutine structure can
      be recovered from there - which would make this one easier to refactor. *)
-  let rec explore_paths  (func: AFun.t) (map: (region, Monitor.state list) Map.t)
-    (rvtmap: rvtmap) (inline_limit: int) (path: unit -> PathTree.t): unit =
+  let rec explore_paths  (func: AFun.t) (inline_limit: int)
+    (print_state: print_state) (path: unit -> PathTree.t): print_state =
     match path () with
     | Seq (step, remaining) ->
         begin
-          match do_step step func map rvtmap inline_limit with
-          | Some (without_monitors_in_final_states, rvtmap) ->
-              explore_paths func without_monitors_in_final_states rvtmap inline_limit remaining
-          | None -> ()
+          match do_step func inline_limit print_state step with
+          | Some print_state1 ->
+              explore_paths func inline_limit print_state1 remaining
+          | None -> print_state
         end
     | Assume (_, _, remaining) ->
-       explore_paths func map rvtmap inline_limit remaining
+       explore_paths func inline_limit print_state remaining
     | If (true_path, false_path) ->
-       explore_paths func map rvtmap inline_limit true_path;
-       explore_paths func map rvtmap inline_limit false_path
-    | Nil -> ()
+        let print_state1 = explore_paths func inline_limit print_state true_path
+        in explore_paths func inline_limit print_state1 false_path
+    | Nil -> print_state
 
 
-  (* TODO: eventually it should return a PP.doc * continuation *)
-  and do_step (step: PathTree.step) (func: AFun.t)
-    (rsmap: (region, Monitor.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
-
-    let _ = if inline_limit > 0 then Option.(
+  and step_into (func: AFun.t) (inline_limit: int) (print_state: print_state)
+    (step: PathTree.step): print_state =
       Some step
-      |> filter (PathTree.exists_in_stmt is_call)
-      |> map (PathTree.inline func)
-      |> tap (fun r -> assert_bool "inline failed!" (Option.is_none r))
-      |> (flip bind) identity
-      |> map snd
-      |> map (explore_paths func rsmap rvtmap (inline_limit - 1))
-      |> may ignore
-    ) in
-    (* TODO: It seems wrong that the state after the exploration is ignored and
-       dropped here *)
-    (* TODO: Also rsmap is dropped after this inlinining, not sure if it matters *)
-    (* TODO: Should produce a PP.doc, this is why it remains a let *)
+        |> Option.filter (PathTree.exists_in_stmt is_call)
+        |> Option.map (PathTree.inline func)
+        |> tap (assert_bool "inline failed!" % Option.is_none)
+        |> (flip Option.bind) identity
+        |> Option.map snd
+        |> Option.map (explore_paths func (inline_limit - 1) print_state)
+        |> Option.default print_state
 
-    (* TODO: We seem to be monitoring which automaton for which region was in which
-       state, but we are ignoring program states *)
-    let apply_transition (map_to_add_to: (region, Monitor.state list) Map.t)
-      (effects: (region * Effects.e list) list)
-      : (region, Monitor.state list) Map.t =
-      List.fold_right (fun (r,es) map ->
-          (* determine monitors for the region r, finding them in the map_to_add_to *)
-          let states  = Map.find_default [Monitor.initial_state] r map_to_add_to in
-          (* make the monitors take a step based on the effects es *)
-          let applied = List.map (flip Monitor.transition es) states in
-          (* register the states in the map *)
-          (* TODO: this is also weird, because we seem to be keeping the old
-             states in the active map that we return, I am not touching it,
-             because I still do not understand the map invariant. I have a hunch
-             that the old states should be dropped, unless this is a cache of
-             visited states (but then why the program point is not part of it?) *)
-          Map.add r applied map) effects map_to_add_to in
+  and do_step (func: AFun.t) (inline_limit: int) (print_state: print_state)
+    (step: PathTree.step): print_state option =
 
-    (* TODO: these effects should be ignored if we inlined above! *)
-    let states = List.(
-      step.effs.may
-      |> Effects.EffectSet.to_list
-      |> filter_map get_region
-      |> group (fun r r' -> Region.compare (fst r) (fst r'))
-      |> map extract_regions
-      |> apply_transition rsmap
-    ) in
+    let cmap, rsmap, rvtmap =
+      if inline_limit > 0 then step_into func inline_limit print_state step
+      else step_over print_state step in
 
     (* TODO: this is of the same type as rsmap, but the rest of the function
       works only on interesting monitors *)
-    (* TODO: also it appears that the uninteresting monitors are dropped at this
-       point, they will never continue *)
     let interesting_monitors =
-      Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) states in
+      Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) rsmap in
 
     begin
       if not (Map.is_empty interesting_monitors)
@@ -362,8 +362,8 @@ module MakeT (Monitor: PrinterSpec) = struct
           Printf.fprintf IO.stdout "\n";
 
        let without_monitors_in_final_states =
-         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) states in
-         Some (without_monitors_in_final_states, rvtmap)
+         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
+         Some (Tuple3.first print_state, without_monitors_in_final_states, rvtmap)
             (* the original recursion: explore_paths func without_monitors_in_final_states
                rvtmap inline_limit remaining *)
     end else None
@@ -382,11 +382,13 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
+    let cmap, _, rvtmap =
+      explore_paths func inline_limit (Map.empty, Map.empty, rvtmap) path_tree in
       (* TODO: printed prematurely, kept here for backwards traceability *)
       loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
+      (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
-      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      explore_paths func Map.empty rvtmap inline_limit path_tree;;
+      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);;
 
 end
 
