@@ -201,6 +201,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     ) in
     (* TODO: It seems wrong that the state after the exploration is ignored and
        dropped here *)
+    (* TODO: Also rsmap is dropped after this inlinining, not sure if it matters *)
     (* TODO: Should produce a PP.doc, this is why it remains a let *)
 
     (* TODO: We seem to be monitoring which automaton for which region was in which
@@ -231,15 +232,17 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> apply_transition rsmap
     ) in
 
+    (* TODO: this is of the same type as rsmap, but the rest of the function
+      works only on interesting monitors *)
+    (* TODO: also it appears that the uninteresting monitors are dropped at this
+       point, they will never continue *)
     let interesting_monitors =
-      Map.filter (fun _ b -> List.exists (fun s -> Monitor.is_in_interesting_section s) b) states in
+      Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) states in
 
     begin
       if not (Map.is_empty interesting_monitors)
       then
         begin
-          (* let ints = enum_regions step.effs |> List.of_enum |> List.map region_id in *)
-
           (* Gets the name of the expression involving a call,
            it is for function name or arguments
            although it works over expressions *)
