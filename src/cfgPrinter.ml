@@ -185,7 +185,15 @@ module MakeT (P: PrinterSpec) = struct
 
 
   and do_step (step: PathTree.step) (func: AFun.t)
-    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
+    (rsmap: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
+
+    let _ = if inline_limit > 0 then Option.(
+      Some step
+        |> filter (PathTree.exists_in_stmt is_call)
+        |> (flip bind) (PathTree.inline func)
+        |> may (ignore % explore_paths func rsmap rvtmap (inline_limit - 1) % snd)
+    ) in (* TODO: eventually should produce a PP.doc, this is why it remains a let *)
+         (* TODO: it also seems that we ignore a failure if inline fails, but does it? *)
 
     let apply_transition effects map_to_add_to =
       List.fold_right (fun ((r,es): region * Effects.e list) map ->
@@ -193,18 +201,12 @@ module MakeT (P: PrinterSpec) = struct
           let applied = List.map (fun s -> P.transition s es) states in
           Map.add r applied map) effects map_to_add_to in
     begin
-      if inline_limit > 0 then
-        Some (step)
-          |> Option.filter (PathTree.exists_in_stmt is_call)
-          |> (flip Option.Monad.bind) (PathTree.inline func)
-          |> Option.may (fun res ->
-              ignore (explore_paths func map rvtmap (inline_limit-1) (snd res)));
 
     let input = step.effs.may |> Effects.EffectSet.to_list in
     let region_options = List.map get_region input in
     let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in
     let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions |> List.map extract_regions in
-    let states = apply_transition grouped map in
+    let states = apply_transition grouped rsmap in
     let interesting_monitors = Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
       if not (Map.is_empty interesting_monitors)
       then
