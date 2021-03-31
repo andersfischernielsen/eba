@@ -57,8 +57,12 @@ module MakeT (P: PrinterSpec) = struct
     "spin_unlock_bh";
   ];;
 
-  let is_locking (name: Cil.varinfo): bool =
-    List.exists ((=) name.vname) lock_functions;;
+  let is_locking (i: Cil.instr): bool =
+    match i with
+    | Call (_, Lval (Var name, _), _, _) ->
+        List.exists ((=) name.vname) lock_functions
+    | __________________________________ -> false ;;
+
 
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
@@ -250,17 +254,8 @@ module MakeT (P: PrinterSpec) = struct
           | Stmt l -> List.filter (fun (i:Cil.instr) -> match i with Call _ -> true | _ -> false) l
           | _ -> []
         in
-        (* Just look for call that manipulate locks *)
-        let lcall = List.filter (fun (i:Cil.instr) ->
-                        match i with
-                        |Call (_,e,_,_) ->
-                          begin
-                            match e with
-                            |Lval (Var name,_) -> is_locking (name)
-                            |_ -> false
-                          end
-                        |_ -> false) fcall
-        in
+        (* look calls that manipulate locks *)
+        let lcall = List.filter is_locking fcall in
         (* Keep track of function calls whos results are assigned to cil tmp variables *)
         List.iter(fun (i:Cil.instr) ->
             match i with
