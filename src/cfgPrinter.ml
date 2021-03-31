@@ -27,6 +27,39 @@ module MakeT (P: PrinterSpec) = struct
 
   let assert_bool = OUnit2.assert_bool;;
 
+  let lock_functions = [
+    "mutex_lock";
+    "mutex_lock_nested";
+    "mutex_lock_interruptible_nested";
+    "_spin_lock";
+    "_raw_spin_lock";
+    "__raw_spin_trylock";
+    "_raw_read_lock";
+    "_raw_spin_lock_irq";
+    "_raw_spin_lock_irqsave";
+    "_raw_spin_lock_bh";
+    "spin_lock";
+    "spin_lock_irqsave";
+    "spin_lock_bh";
+    "mutex_unlock";
+    "_spin_unlock";
+    "_raw_spin_unlock";
+    "__raw_spin_unlock";
+    "_raw_read_unlock";
+    "__raw_read_unlock";
+    "_raw_spin_unlock_irq";
+    "__raw_spin_unlock_irq";
+    "_raw_spin_unlock_irqrestore";
+    "_raw_spin_unlock_bh";
+    "spin_unlock_irqrestore";
+    "spin_unlock";
+    "spin_unlock_irqrestore";
+    "spin_unlock_bh";
+  ];;
+
+  let is_locking (name: Cil.varinfo): bool =
+    List.exists ((=) name.vname) lock_functions;;
+
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
@@ -106,32 +139,38 @@ module MakeT (P: PrinterSpec) = struct
       Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
 
+
   (** Print a file location including a function name *)
   let loc_prefix (l: Cil.location) (fname: string): PP.doc =
     PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
 
+
   let cil_tmp_dir = Hashtbl.create 50
 
 
-  (** TODO: it might be beneficial to use the PP and return it - this should
+  (* TODO: it might be beneficial to use the PP and return it - this should
       make the printer much faster, and pure *)
+  (* TODO: not sure if the mutual recursion can be eliminated, the stack may be
+     needed. The refactoring of this function is not finished, as I decided that
+     do_step has bigger benefits to gain - and also the coroutine structure can
+     be recovered from there - which would make this one easier to refactor. *)
   let rec explore_paths (path: unit -> PathTree.t) (func: AFun.t)
-    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int):
-      unit =
+    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int): unit =
     match path () with
-    | Seq(step, remaining) ->
+    | Seq (step, remaining) ->
         begin
           match do_step step func map rvtmap inline_limit with
-          | Some (without_monitors_in_final_states, var_region_map, inline_limit) ->
-              explore_paths remaining func without_monitors_in_final_states var_region_map inline_limit
+          | Some (without_monitors_in_final_states, rvtmap) ->
+              explore_paths remaining func without_monitors_in_final_states rvtmap inline_limit
           | None -> ()
         end
-    | Assume(_, _, remaining) ->
+    | Assume (_, _, remaining) ->
        explore_paths remaining func map rvtmap inline_limit
-    | If(true_path, false_path) ->
+    | If (true_path, false_path) ->
        explore_paths true_path func map rvtmap inline_limit;
        explore_paths false_path func map rvtmap inline_limit
     | Nil -> ()
+
 
   and do_step (step: PathTree.step) (func: AFun.t)
     (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int)
@@ -176,15 +215,7 @@ module MakeT (P: PrinterSpec) = struct
     then
       begin
         (* let ints = enum_regions step.effs |> List.of_enum |> List.map region_id in *)
-        let lock_funs =
-          ["mutex_lock";"mutex_lock_nested";"mutex_lock_interruptible_nested";
-           "_spin_lock";"_raw_spin_lock";"__raw_spin_trylock";"_raw_read_lock";
-           "_raw_spin_lock_irq";"_raw_spin_lock_irqsave";"_raw_spin_lock_bh";"spin_lock";
-           "spin_lock_irqsave";"spin_lock_bh";"mutex_unlock";"_spin_unlock";"_raw_spin_unlock";
-           "__raw_spin_unlock";
-           "_raw_read_unlock";"__raw_read_unlock";"_raw_spin_unlock_irq";"__raw_spin_unlock_irq";
-           "_raw_spin_unlock_irqrestore";"_raw_spin_unlock_bh";"spin_unlock_irqrestore";"spin_unlock";
-           "spin_unlock_irqrestore";"spin_unlock_bh"] in
+
         (* Gets the name of the expression involving a call,
          it is for function name or arguments
          although it works over expressions *)
@@ -225,7 +256,7 @@ module MakeT (P: PrinterSpec) = struct
                         |Call (_,e,_,_) ->
                           begin
                             match e with
-                            |Lval (Var name,_) -> List.exists ((=)name.vname) lock_funs
+                            |Lval (Var name,_) -> is_locking (name)
                             |_ -> false
                           end
                         |_ -> false) fcall
@@ -247,7 +278,7 @@ module MakeT (P: PrinterSpec) = struct
                          |_ -> "") lcall in
 
         let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in
-        let var_region_map =
+        let rvtmap =
           if lname <> "" then
             let lname =
               if BatString.starts_with lname "tmp" then
@@ -287,13 +318,13 @@ module MakeT (P: PrinterSpec) = struct
 
 
         (* TODO: the "" below should be replaced with function name, or we should refactor it away *)
-        Printf.fprintf IO.stdout "%s:%s\n"
+        Printf.printf "%s:%s\n"
           (loc_prefix step.sloc "" |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
         (Map.iter (fun k v ->
              List.iter (fun s ->
                  if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
                  then
-                     Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s var_region_map)
+                     Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s rvtmap)
                )v
            )interesting_monitors;
         Printf.fprintf IO.stdout "\n");
@@ -305,7 +336,7 @@ module MakeT (P: PrinterSpec) = struct
            | Some r ->
               let id = region_id (fst r) in
               Printf.fprintf IO.stdout "{Region:%i} " id;
-              rvtmap_apply id var_region_map (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+              rvtmap_apply id rvtmap (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
            | None -> ();
               Printf.fprintf IO.stdout "\n";
         ) (Effects.EffectSet.to_list step.effs.may);
@@ -313,9 +344,9 @@ module MakeT (P: PrinterSpec) = struct
 
      let without_monitors_in_final_states =
        Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
-       Some (without_monitors_in_final_states, var_region_map, inline_limit)
+       Some (without_monitors_in_final_states, rvtmap)
           (* the original recursion: explore_paths remaining func without_monitors_in_final_states
-             var_region_map inline_limit *)
+             rvtmap inline_limit *)
   end else None;;
 
 
