@@ -199,16 +199,26 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> map (explore_paths func rsmap rvtmap (inline_limit - 1))
       |> may ignore
     ) in
-    (* TODO: it seems wrong that the state after the exploration is ignored and
+    (* TODO: It seems wrong that the state after the exploration is ignored and
        dropped here *)
-    (* TODO: should produce a PP.doc, this is why it remains a let *)
+    (* TODO: Should produce a PP.doc, this is why it remains a let *)
 
+    (* TODO: We seem to be monitoring which automaton for which region was in which
+       state, but we are ignoring program states *)
     let apply_transition (map_to_add_to: (region, Monitor.state list) Map.t)
       (effects: (region * Effects.e list) list)
       : (region, Monitor.state list) Map.t =
       List.fold_right (fun (r,es) map ->
+          (* determine monitors for the region r, finding them in the map_to_add_to *)
           let states  = Map.find_default [Monitor.initial_state] r map_to_add_to in
-          let applied = List.map (fun s -> Monitor.transition s es) states in
+          (* make the monitors take a step based on the effects es *)
+          let applied = List.map (flip Monitor.transition es) states in
+          (* register the states in the map *)
+          (* TODO: this is also weird, because we seem to be keeping the old
+             states in the active map that we return, I am not touching it,
+             because I still do not understand the map invariant. I have a hunch
+             that the old states should be dropped, unless this is a cache of
+             visited states (but then why the program point is not part of it?) *)
           Map.add r applied map) effects map_to_add_to in
 
     (* TODO: these effects should be ignored if we inlined above! *)
