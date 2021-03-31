@@ -101,10 +101,16 @@ type cond = Cond of test_kind * Cil.exp * Cil.location
 
 let tk_of_option = Option.map_default (fun b -> TWhile b) TOther
 
-let find_in_stmt finder step =
+let find_in_stmt (finder: Cil.instr list -> 'a option) (step: step): 'a option =
 	match step.kind with
 	| Stmt(is)   -> finder is
 	| _else_____ -> None
+
+(** Holds iff [step] is a statement and contains an instruction satisfying [p]*)
+let exists_in_stmt (p: Cil.instr -> bool) (step: step): bool =
+	match step.kind with
+	| Stmt instrs -> List.exists p instrs
+	| ___________ -> false
 
 let pp_step step =
 	match step.kind with
@@ -422,7 +428,7 @@ let rec reachable ks t ~guard ~target ~trace st :('st * step * path * t delayed)
 	let open L in
 	match t() with
 	| Assume(cond,b,t') ->
-		let res = map (push_dec cond b) in 
+		let res = map (push_dec cond b) in
 		let explored = (reachable ks t' guard target trace st) in
 		explored |> res
 	| Seq(step,t') ->
