@@ -2,56 +2,56 @@ open Batteries
 open Type
 open Effects
 
-module Spec: CfgPrinter.PrinterSpec = struct 
+module Spec: CfgPrinter.PrinterSpec = struct
 
-    type state = 
+    type state =
 		| Initial
-		| Locked
-        | Unlocked
-    
+		| Orange
+        | Black
+
     let initial_state = Initial
     let transition_labels = [Lock; Unlock]
-    
-    let is_in_transition_labels effect = 
-		match effect with 
-		| Mem(kind, _) -> List.mem kind transition_labels
-		| _ -> false 
 
-    let transition current input = 
+    let is_in_transition_labels effect =
+		match effect with
+		| Mem(kind, _) -> List.mem kind transition_labels
+		| _ -> false
+
+    let transition current input =
 		match current with
 		| Initial ->
-			(match input with 
-			| [Mem(Lock, _)]		-> Locked
-			| [Mem(Lock, _); _]		-> Locked
-			| [_; Mem(Lock, _)] 	-> Locked
+			(match input with
+			| [Mem(Lock, _)]		-> Orange
+			| [Mem(Lock, _); _]		-> Orange
+			| [_; Mem(Lock, _)] 	-> Orange
 			| _         		    -> current
 			)
-        | Locked ->
-			(match input with 
-			| [Mem(Unlock, _)]		-> Unlocked
-			| [_; Mem(Unlock, _)]	-> Unlocked
-			| [Mem(Unlock, _); _]	-> Unlocked
+        | Orange ->
+			(match input with
+			| [Mem(Unlock, _)]		-> Black
+			| [_; Mem(Unlock, _)]	-> Black
+			| [Mem(Unlock, _); _]	-> Black
 			| _         			-> current
 			)
-        | Unlocked 					-> Initial
+        | Black 					-> Initial
 
-    let is_in_interesting_section state = 
-		match state with 
-        | Locked 	-> true
-        | Unlocked 	-> true
+    let is_in_interesting_section state =
+		match state with
+        | Orange 	-> true
+        | Black 	-> true
 	| Initial 	-> true
 
-	let is_in_final_state state = 
-		match state with 
-        | Unlocked 	-> true
+	let is_in_final_state state =
+		match state with
+        | Black 	-> true
 		| _ 		-> false
 
-	let string_of_state state = 
-		match state with 
-		| Locked 	-> Format.sprintf "Locked" 
-		| Unlocked 	-> Format.sprintf "Unlocked" 
+	let string_of_state state =
+		match state with
+		| Orange 	-> Format.sprintf "Locked"
+		| Black 	-> Format.sprintf "Unlocked"
 		| _ 		-> ""
-end 
+end
 
 module Printer = CfgPrinter.Make(Spec)
 include Printer
