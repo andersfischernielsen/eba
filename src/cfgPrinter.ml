@@ -166,21 +166,21 @@ module MakeT (P: PrinterSpec) = struct
      needed. The refactoring of this function is not finished, as I decided that
      do_step has bigger benefits to gain - and also the coroutine structure can
      be recovered from there - which would make this one easier to refactor. *)
-  let rec explore_paths (path: unit -> PathTree.t) (func: AFun.t)
-    (map: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int): unit =
+  let rec explore_paths  (func: AFun.t) (map: (region, P.state list) Map.t)
+    (rvtmap: rvtmap) (inline_limit: int) (path: unit -> PathTree.t): unit =
     match path () with
     | Seq (step, remaining) ->
         begin
           match do_step step func map rvtmap inline_limit with
           | Some (without_monitors_in_final_states, rvtmap) ->
-              explore_paths remaining func without_monitors_in_final_states rvtmap inline_limit
+              explore_paths func without_monitors_in_final_states rvtmap inline_limit remaining
           | None -> ()
         end
     | Assume (_, _, remaining) ->
-       explore_paths remaining func map rvtmap inline_limit
+       explore_paths func map rvtmap inline_limit remaining
     | If (true_path, false_path) ->
-       explore_paths true_path func map rvtmap inline_limit;
-       explore_paths false_path func map rvtmap inline_limit
+       explore_paths func map rvtmap inline_limit true_path;
+       explore_paths func map rvtmap inline_limit false_path
     | Nil -> ()
 
 
@@ -192,13 +192,13 @@ module MakeT (P: PrinterSpec) = struct
           let states  = Map.find_default [P.initial_state] r map_to_add_to in
           let applied = List.map (fun s -> P.transition s es) states in
           Map.add r applied map) effects map_to_add_to in
-      if inline_limit > 0 &&  PathTree.exists_in_stmt is_call step then
-        let inlined = PathTree.inline func step in
-        match inlined with
-        | Some (_, res) -> explore_paths res func map rvtmap (inline_limit-1)
-        | _ -> ()
-      else
-        Printf.fprintf IO.stdout "";
+    begin
+      if inline_limit > 0 then
+        Some (step)
+          |> Option.filter (PathTree.exists_in_stmt is_call)
+          |> (flip Option.Monad.bind) (PathTree.inline func)
+          |> Option.may (fun res ->
+              ignore (explore_paths func map rvtmap (inline_limit-1) (snd res)));
 
     let input = step.effs.may |> Effects.EffectSet.to_list in
     let region_options = List.map get_region input in
@@ -331,9 +331,10 @@ module MakeT (P: PrinterSpec) = struct
        let without_monitors_in_final_states =
          Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
          Some (without_monitors_in_final_states, rvtmap)
-            (* the original recursion: explore_paths remaining func without_monitors_in_final_states
-               rvtmap inline_limit *)
-    end else None;;
+            (* the original recursion: explore_paths func without_monitors_in_final_states
+               rvtmap inline_limit remaining *)
+    end else None
+    end ;;
 
 
 
@@ -352,7 +353,7 @@ module MakeT (P: PrinterSpec) = struct
       loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      explore_paths path_tree func Map.empty rvtmap inline_limit;;
+      explore_paths func Map.empty rvtmap inline_limit path_tree;;
 
 end
 
