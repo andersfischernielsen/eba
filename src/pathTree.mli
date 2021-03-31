@@ -25,6 +25,10 @@ type step = {
 
 val find_in_stmt : (Cil.instr list -> 'a option) -> step -> 'a option
 
+(** Holds iff the provided step is a statement and contains an
+    instruction satisfying the provided predicate. *)
+val exists_in_stmt : (Cil.instr -> bool) -> step -> bool
+
 val string_of_step : step -> string
 
 val pp_step : step -> PP.doc
