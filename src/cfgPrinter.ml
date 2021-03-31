@@ -184,16 +184,19 @@ module MakeT (P: PrinterSpec) = struct
     | Nil -> ()
 
 
+  (* TODO: eventually it should return a PP.doc * continuation *)
   and do_step (step: PathTree.step) (func: AFun.t)
     (rsmap: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
 
     let _ = if inline_limit > 0 then Option.(
       Some step
         |> filter (PathTree.exists_in_stmt is_call)
-        |> (flip bind) (PathTree.inline func)
+        |> map (PathTree.inline func)
+        |> tap (fun r -> assert_bool "inline failed!" (Option.is_none r))
+        |> (flip bind) identity
         |> may (ignore % explore_paths func rsmap rvtmap (inline_limit - 1) % snd)
-    ) in (* TODO: eventually should produce a PP.doc, this is why it remains a let *)
-         (* TODO: it also seems that we ignore a failure if inline fails, but does it? *)
+    ) in (* TODO: should produce a PP.doc, this is why it remains a let *)
+         (* TODO: it seems that we ignore a failure of inline, does it fail? *)
 
     let apply_transition effects map_to_add_to =
       List.fold_right (fun ((r,es): region * Effects.e list) map ->
