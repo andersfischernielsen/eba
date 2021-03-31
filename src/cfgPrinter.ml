@@ -190,27 +190,37 @@ module MakeT (P: PrinterSpec) = struct
 
     let _ = if inline_limit > 0 then Option.(
       Some step
-        |> filter (PathTree.exists_in_stmt is_call)
-        |> map (PathTree.inline func)
-        |> tap (fun r -> assert_bool "inline failed!" (Option.is_none r))
-        |> (flip bind) identity
-        |> may (ignore % explore_paths func rsmap rvtmap (inline_limit - 1) % snd)
-    ) in (* TODO: should produce a PP.doc, this is why it remains a let *)
-         (* TODO: it seems that we ignore a failure of inline, does it fail? *)
+      |> filter (PathTree.exists_in_stmt is_call)
+      |> map (PathTree.inline func)
+      |> tap (fun r -> assert_bool "inline failed!" (Option.is_none r))
+      |> (flip bind) identity
+      |> may (ignore % explore_paths func rsmap rvtmap (inline_limit - 1) % snd)
+    ) in
+    (* TODO: it seems wrong that the state after the exploration is ignored and
+       dropped here *)
+    (* TODO: should produce a PP.doc, this is why it remains a let *)
 
-    let apply_transition effects map_to_add_to =
-      List.fold_right (fun ((r,es): region * Effects.e list) map ->
+    let apply_transition map_to_add_to (effects: (region * Effects.e list) list)
+      : (region, P.state list) BatMap.t =
+      List.fold_right (fun (r,es) map ->
           let states  = Map.find_default [P.initial_state] r map_to_add_to in
           let applied = List.map (fun s -> P.transition s es) states in
           Map.add r applied map) effects map_to_add_to in
-    begin
 
-    let input = step.effs.may |> Effects.EffectSet.to_list in
-    let region_options = List.map get_region input in
-    let regions = List.fold_right (fun e acc -> (match e with Some r -> r::acc | None -> acc)) region_options [] in
-    let grouped = List.group (fun r r' -> Region.compare (fst r) (fst r')) regions |> List.map extract_regions in
-    let states = apply_transition grouped rsmap in
-    let interesting_monitors = Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
+    (* TODO: these effects needs to be ignored if we inlined! *)
+    let states = List.(
+      step.effs.may
+      |> Effects.EffectSet.to_list
+      |> filter_map get_region
+      |> group (fun r r' -> Region.compare (fst r) (fst r'))
+      |> map extract_regions
+      |> apply_transition rsmap
+    ) in
+
+    let interesting_monitors =
+      Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
+
+    begin
       if not (Map.is_empty interesting_monitors)
       then
         begin
