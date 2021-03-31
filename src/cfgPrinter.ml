@@ -23,7 +23,7 @@ module type Printer = sig
 
 end
 
-module MakeT (P: PrinterSpec) = struct
+module MakeT (Monitor: PrinterSpec) = struct
 
   let assert_bool = OUnit2.assert_bool;;
 
@@ -137,16 +137,17 @@ module MakeT (P: PrinterSpec) = struct
 
   (* TODO: a bit too many args? what is calls? *)
   (* TODO: why are calls needed here? *)
+  (* TODO: Would it make sense to return doc? *)
   (** Translate a region [r] and state [s] information into a log entry
       containing state, the lock name, the variable type and the region name,
       plus all the regions involved in the calls *)
-  let region_state_string (r: region) (s: P.state) (m: rvtmap): string =
+  let region_state_string (r: region) (s: Monitor.state) (m: rvtmap): string =
     let r_string = Region.pp r |> PP.to_string in
     let _ = assert_bool (Printf.sprintf "Region r is bound %s" r_string)
       (Region.is_meta r) in
     let _ = assert_bool "region info undefined in var-region map!"
       (BatMap.mem (region_id r) m) in
-    let sname = P.string_of_state s in
+    let sname = Monitor.string_of_state s in
     let vname, vtype = rvtmap_get m (region_id r) in
       Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
@@ -166,7 +167,7 @@ module MakeT (P: PrinterSpec) = struct
      needed. The refactoring of this function is not finished, as I decided that
      do_step has bigger benefits to gain - and also the coroutine structure can
      be recovered from there - which would make this one easier to refactor. *)
-  let rec explore_paths  (func: AFun.t) (map: (region, P.state list) Map.t)
+  let rec explore_paths  (func: AFun.t) (map: (region, Monitor.state list) Map.t)
     (rvtmap: rvtmap) (inline_limit: int) (path: unit -> PathTree.t): unit =
     match path () with
     | Seq (step, remaining) ->
@@ -186,7 +187,7 @@ module MakeT (P: PrinterSpec) = struct
 
   (* TODO: eventually it should return a PP.doc * continuation *)
   and do_step (step: PathTree.step) (func: AFun.t)
-    (rsmap: (region, P.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
+    (rsmap: (region, Monitor.state list) Map.t) (rvtmap: rvtmap) (inline_limit: int) =
 
     let _ = if inline_limit > 0 then Option.(
       Some step
@@ -194,20 +195,23 @@ module MakeT (P: PrinterSpec) = struct
       |> map (PathTree.inline func)
       |> tap (fun r -> assert_bool "inline failed!" (Option.is_none r))
       |> (flip bind) identity
-      |> may (ignore % explore_paths func rsmap rvtmap (inline_limit - 1) % snd)
+      |> map snd
+      |> map (explore_paths func rsmap rvtmap (inline_limit - 1))
+      |> may ignore
     ) in
     (* TODO: it seems wrong that the state after the exploration is ignored and
        dropped here *)
     (* TODO: should produce a PP.doc, this is why it remains a let *)
 
-    let apply_transition map_to_add_to (effects: (region * Effects.e list) list)
-      : (region, P.state list) BatMap.t =
+    let apply_transition (map_to_add_to: (region, Monitor.state list) Map.t)
+      (effects: (region * Effects.e list) list)
+      : (region, Monitor.state list) Map.t =
       List.fold_right (fun (r,es) map ->
-          let states  = Map.find_default [P.initial_state] r map_to_add_to in
-          let applied = List.map (fun s -> P.transition s es) states in
+          let states  = Map.find_default [Monitor.initial_state] r map_to_add_to in
+          let applied = List.map (fun s -> Monitor.transition s es) states in
           Map.add r applied map) effects map_to_add_to in
 
-    (* TODO: these effects needs to be ignored if we inlined! *)
+    (* TODO: these effects should be ignored if we inlined above! *)
     let states = List.(
       step.effs.may
       |> Effects.EffectSet.to_list
@@ -218,7 +222,7 @@ module MakeT (P: PrinterSpec) = struct
     ) in
 
     let interesting_monitors =
-      Map.filter (fun _ b -> List.exists (fun s -> P.is_in_interesting_section s) b) states in
+      Map.filter (fun _ b -> List.exists (fun s -> Monitor.is_in_interesting_section s) b) states in
 
     begin
       if not (Map.is_empty interesting_monitors)
@@ -260,6 +264,7 @@ module MakeT (P: PrinterSpec) = struct
             | Stmt l -> List.filter (fun (i:Cil.instr) -> match i with Call _ -> true | _ -> false) l
             | _ -> []
           in
+          (* TODO: why do we care about this? Aren't effects enough? *)
           (* look calls that manipulate locks *)
           let lcall = List.filter is_locking fcall in
           (* Keep track of function calls whos results are assigned to cil tmp variables *)
@@ -301,8 +306,8 @@ module MakeT (P: PrinterSpec) = struct
 
               let c_regions =
                 Map.filter (fun _k v ->
-                    List.exists (fun s -> P.string_of_state s = "Locked" ||
-                                            P.string_of_state s = "Unlocked") v
+                    List.exists (fun s -> Monitor.string_of_state s = "Locked" ||
+                                            Monitor.string_of_state s = "Unlocked") v
                   ) interesting_monitors in
               Map.foldi (fun k _v acc ->
                   try
@@ -323,7 +328,7 @@ module MakeT (P: PrinterSpec) = struct
             (loc_prefix step.sloc "" |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
           (Map.iter (fun k v ->
                List.iter (fun s ->
-                   if (P.string_of_state s ="Locked")||(P.string_of_state s ="Unlocked")
+                   if (Monitor.string_of_state s ="Locked")||(Monitor.string_of_state s ="Unlocked")
                    then
                        Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s rvtmap)
                  )v
@@ -344,7 +349,7 @@ module MakeT (P: PrinterSpec) = struct
           Printf.fprintf IO.stdout "\n";
 
        let without_monitors_in_final_states =
-         Map.map (fun state_list -> List.filter (fun s -> not (P.is_in_final_state s)) state_list) states in
+         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) states in
          Some (without_monitors_in_final_states, rvtmap)
             (* the original recursion: explore_paths func without_monitors_in_final_states
                rvtmap inline_limit remaining *)
