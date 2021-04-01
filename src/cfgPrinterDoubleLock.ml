@@ -2,7 +2,7 @@ open Batteries
 open Type
 open Effects
 
-module Spec: CfgPrinter.PrinterSpec = struct
+module SpecT = struct
 
   type state = Red | Black
 
@@ -36,6 +36,8 @@ module Spec: CfgPrinter.PrinterSpec = struct
     | Black 	-> "black"
 
 end
+
+module Spec: CfgPrinter.PrinterSpec = SpecT
 
 module Printer = CfgPrinter.Make(Spec)
 include Printer
