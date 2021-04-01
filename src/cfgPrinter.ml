@@ -73,7 +73,7 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   (* TODO: bcr code, likely not needed, probably to be removed, but kept here,
      if we discover that we need it, for some time. *)
-  let rec getFAname (exp : Cil.exp) : string =
+  (* let rec getFAname (exp : Cil.exp) : string =
     let rec explore_offset (offs:Cil.offset) = match offs with
       |NoOffset -> ""
       |Field (info, NoOffset) -> info.fname
@@ -92,14 +92,13 @@ module MakeT (Monitor: PrinterSpec) = struct
     |SizeOf _ -> "#sizeOf#"
     |AlignOf _ -> "#typeAlign#"
     |AlignOfE _ -> "#typeAlign#"
-    |_ -> "Unknown";;
+    |_ -> "Unknown";; *)
 
 
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
   type rvtmap = (int, name * name) BatMap.t
-  type color = Black | Red
   type 'a of_steps = (PathTree.step, 'a) BatMap.t
 
   (* TODO: this might be eliminatable *)
@@ -185,10 +184,10 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   (* TODO This appears to be used by the bcr code, so likely can be replaced by
       another fixpoint structure for our purposes *)
-  let cil_tmp_dir = Hashtbl.create 50
+  (* let cil_tmp_dir = Hashtbl.create 50 *)
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
-  type print_state = color of_steps * (region, Monitor.state list) Map.t * rvtmap
+  type print_state = Monitor.state of_steps * (region, Monitor.state list) Map.t * rvtmap
 
 
   (* TODO: We seem to be monitoring which automaton for which region was in which
@@ -265,39 +264,51 @@ module MakeT (Monitor: PrinterSpec) = struct
 
     (* TODO: this is of the same type as rsmap, but the rest of the function
       works only on interesting monitors *)
-    let interesting_monitors =
+    (* TODO: this seems to be useful for killing monitors following a Boolean
+       predicate. *)
+    let rsmap1 =
       Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) rsmap in
 
     begin
-      if not (Map.is_empty interesting_monitors)
+      if not (Map.is_empty rsmap1)
       then begin
+       let without_monitors_in_final_states =
+         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
+         Some (Tuple3.first print_state, without_monitors_in_final_states, rvtmap)
+    end else None
+    end ;;
+
+
+        (* TODO from bcr
           (* Gets the name of the expression involving a call,
            it is for function name or arguments
            although it works over expressions *)
           let fcall = match step.kind with
             | Stmt l -> List.filter (fun (i:Cil.instr) -> match i with Call _ -> true | _ -> false) l
-            | _ -> []
-          in
+            | _ -> [] in
           (* TODO: why do we care about this? Aren't effects enough? *)
           (* look calls that manipulate locks *)
           let lcall = List.filter is_locking fcall in
           (* Keep track of function calls whos results are assigned to cil tmp variables *)
-          List.iter(fun (i:Cil.instr) ->
-              match i with
-              |Call (Some (Cil.Var vi,_),_,arg1::_args,_) ->
-                if BatString.starts_with vi.vname "tmp" then
-                  begin
-                    Hashtbl.remove cil_tmp_dir vi.vname;
-                    Hashtbl.add cil_tmp_dir vi.vname (getFAname arg1);
-                  end
-              |_ -> ())fcall;
+            List.iter(fun (i:Cil.instr) ->
+                match i with
+                | Call (Some (Cil.Var vi,_),_,arg1::_args,_) ->
+                  if BatString.starts_with vi.vname "tmp" then
+                    begin
+                      Hashtbl.remove cil_tmp_dir vi.vname;
+                      Hashtbl.add cil_tmp_dir vi.vname (getFAname arg1);
+                    end
+                |_ -> ())fcall;
+
           let lnames = List.map (fun (fc:Cil.instr) ->
                            match fc with
                            |Call(_,_,args,_) -> getFAname (List.hd args)
                            |_ -> "") lcall in
 
-          let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in
-          let rvtmap =
+          let (lname:string) = List.fold_left (fun x acc -> if acc == "" then x else acc) "" lnames in *)
+          (* TODO: this part of the code appears to be important. it does
+             something with temparary names. We may need to revive this. *)
+          (* let rvtmap =
             if lname <> "" then
               let lname =
                 if BatString.starts_with lname "tmp" then
@@ -333,42 +344,37 @@ module MakeT (Monitor: PrinterSpec) = struct
                 ) c_regions rvtmap
             else
               rvtmap
-          in
+          in *)
 
 
+          (* TODO: Color printing code, should be done outside *)
           (* TODO: the "" below should be replaced with function name, or we should refactor it away *)
-          Printf.printf "%s:%s\n"
-            (loc_prefix step.sloc "" |> PP.to_string) (PathTree.pp_step step |> PP.to_string);
+          (* PP.(loc_prefix step.sloc "" + colon + PathTree.pp_step step + newline |> to_stdout);
           (Map.iter (fun k v ->
                List.iter (fun s ->
                    if (Monitor.string_of_state s ="Locked")||(Monitor.string_of_state s ="Unlocked")
                    then
-                       Printf.fprintf IO.stdout "{State:%s}" (region_state_string k s rvtmap)
+                       Printf.printf "{State:%s}" (region_state_string k s rvtmap)
                  )v
              )interesting_monitors;
-          Printf.fprintf IO.stdout "\n");
+          Printf.printf "\n"); *)
 
-          List.iter (fun e ->
-              Effects.pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{Effect:%s}";
-              let region = get_region e in
-              match region with
-             | Some r ->
-                let id = region_id (fst r) in
-                Printf.fprintf IO.stdout "{Region:%i} " id;
-                rvtmap_apply id rvtmap (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
-             | None -> ();
-                Printf.fprintf IO.stdout "\n";
-          ) (Effects.EffectSet.to_list step.effs.may);
-          Printf.fprintf IO.stdout "\n";
 
-       let without_monitors_in_final_states =
-         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
-         Some (Tuple3.first print_state, without_monitors_in_final_states, rvtmap)
-            (* the original recursion: explore_paths func without_monitors_in_final_states
-               rvtmap inline_limit remaining *)
-    end else None
-    end ;;
 
+  (* TODO Effect printing code, should be done, once the exploration is over.*)
+
+  (* List.iter (fun e ->
+      Effects.pp_e e |> PP.to_string |> Printf.fprintf IO.stdout "{Effect:%s}";
+      let region = get_region e in
+      match region with
+     | Some r ->
+        let id = region_id (fst r) in
+        Printf.fprintf IO.stdout "{Region:%i} " id;
+        rvtmap_apply id rvtmap (Printf.fprintf IO.stdout "{Reference:{Vartype:%s}{Varname:%s}}");
+     | None -> ();
+        Printf.printf "\n";
+  ) (Effects.EffectSet.to_list step.effs.may);
+  Printf.fprintf IO.stdout "\n"; *)
 
 
 
