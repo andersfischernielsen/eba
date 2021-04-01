@@ -71,6 +71,29 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Cil.(Call _) -> true
     | ____________ -> false ;;
 
+  (* TODO: bcr code, likely not needed, probably to be removed, but kept here,
+     if we discover that we need it, for some time. *)
+  let rec getFAname (exp : Cil.exp) : string =
+    let rec explore_offset (offs:Cil.offset) = match offs with
+      |NoOffset -> ""
+      |Field (info, NoOffset) -> info.fname
+      |Field (info, o) -> info.fname ^"."^(explore_offset o)
+      |Index (e,o) -> (getFAname e)^"[i]"^(explore_offset o) in
+    match exp with
+    |Lval (Var name,o) -> let offr = explore_offset o in if offr <> "" then name.vname ^"."^offr else name.vname
+    |Lval (Mem e, o) -> let offr = explore_offset o in if offr <> "" then (getFAname e)^"."^offr else (getFAname e)
+    |CastE (_typeOfCast, e) -> getFAname e (* Cast of a variable *)
+    |Const (_) -> "const"                  (* Constant *)
+    |BinOp (_,e1,e2,_) -> (getFAname e1) ^ "-" ^ (getFAname e2)
+    |AddrOf lval -> getFAname (Lval lval)
+    |UnOp (_,e,_) -> getFAname e
+    |StartOf _ -> "#startOf#"
+    |SizeOfE _ -> "#sizeOfE#"
+    |SizeOf _ -> "#sizeOf#"
+    |AlignOf _ -> "#typeAlign#"
+    |AlignOfE _ -> "#typeAlign#"
+    |_ -> "Unknown";;
+
 
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
@@ -160,6 +183,8 @@ module MakeT (Monitor: PrinterSpec) = struct
     PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
 
 
+  (* TODO This appears to be used by the bcr code, so likely can be replaced by
+      another fixpoint structure for our purposes *)
   let cil_tmp_dir = Hashtbl.create 50
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
@@ -171,7 +196,9 @@ module MakeT (Monitor: PrinterSpec) = struct
   let apply_transitions (rsmap: (region, Monitor.state list) Map.t)
     (efmap: (region, Effects.e list) Map.t): (region, Monitor.state list) Map.t =
 
-    (* TODO: this arbitrarily prefers locks over unlocks! *)
+    (* TODO: this arbitrarily prefers locks over unlocks! THIS IS A HUGE PROBLEM
+     THAT REQUIRES CHANGING THE STATE SPACE, THE MODEL, ETC. THE BIGGEST THING
+     NOW. *)
     let apply1 _ (s: Monitor.state list option) (e: Effects.e list option) : Monitor.state list option =
       Some (s |? [Monitor.initial_state] |> List.map (flip Monitor.transition (e |? [])))
     in Map.merge apply1 rsmap efmap ;;
@@ -203,6 +230,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     match path () with
     | Seq (step, remaining) ->
         begin
+          (* TODO: is this option needed here? *)
           match do_step func inline_limit print_state step with
           | Some print_state1 ->
               explore_paths func inline_limit print_state1 remaining
@@ -227,6 +255,7 @@ module MakeT (Monitor: PrinterSpec) = struct
         |> Option.map (explore_paths func (inline_limit - 1) print_state)
         |> Option.default print_state
 
+
   and do_step (func: AFun.t) (inline_limit: int) (print_state: print_state)
     (step: PathTree.step): print_state option =
 
@@ -241,38 +270,10 @@ module MakeT (Monitor: PrinterSpec) = struct
 
     begin
       if not (Map.is_empty interesting_monitors)
-      then
-        begin
+      then begin
           (* Gets the name of the expression involving a call,
            it is for function name or arguments
            although it works over expressions *)
-          let rec getFAname (exp : Cil.exp) : string =
-            let rec explore_offset (offs:Cil.offset) = match offs with
-              |NoOffset -> ""
-              |Field (info, NoOffset) -> info.fname
-              |Field (info, o) -> info.fname ^"."^(explore_offset o)
-              |Index (e,o) -> (getFAname e)^"[i]"^(explore_offset o) in
-            match exp with
-            |Lval (Var name,o) ->
-              let offr = explore_offset o in
-              if offr <> "" then name.vname ^"."^offr else
-                name.vname
-            |Lval (Mem e, o) ->
-              let offr = explore_offset o in
-              if offr <> "" then (getFAname e)^"."^offr else
-                (getFAname e)
-            |CastE (_typeOfCast, e) -> getFAname e (* Cast of a variable *)
-            |Const (_) -> "const"                  (* Constant *)
-            |BinOp (_,e1,e2,_) -> (getFAname e1) ^ "-" ^ (getFAname e2)
-            |AddrOf lval -> getFAname (Lval lval)
-            |UnOp (_,e,_) -> getFAname e
-            |StartOf _ -> "#startOf#"
-            |SizeOfE _ -> "#sizeOfE#"
-            |SizeOf _ -> "#sizeOf#"
-            |AlignOf _ -> "#typeAlign#"
-            |AlignOfE _ -> "#typeAlign#"
-            |_ -> "Unknown"
-          in
           let fcall = match step.kind with
             | Stmt l -> List.filter (fun (i:Cil.instr) -> match i with Call _ -> true | _ -> false) l
             | _ -> []
@@ -286,7 +287,6 @@ module MakeT (Monitor: PrinterSpec) = struct
               |Call (Some (Cil.Var vi,_),_,arg1::_args,_) ->
                 if BatString.starts_with vi.vname "tmp" then
                   begin
-                    (*Printf.eprintf "Tmp assignment: %s -> %s\n" vi.vname (getFAname arg1);*)
                     Hashtbl.remove cil_tmp_dir vi.vname;
                     Hashtbl.add cil_tmp_dir vi.vname (getFAname arg1);
                   end
@@ -368,6 +368,7 @@ module MakeT (Monitor: PrinterSpec) = struct
                rvtmap inline_limit remaining *)
     end else None
     end ;;
+
 
 
 
