@@ -25,6 +25,8 @@ end
 
 module MakeT (Monitor: PrinterSpec) = struct
 
+  module Monitor = Monitor
+
   let assert_bool = OUnit2.assert_bool;;
 
 
@@ -38,7 +40,13 @@ module MakeT (Monitor: PrinterSpec) = struct
      already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
   type rvtmap = (int, name * name) BatMap.t
-  type 'a of_steps = (PathTree.step, 'a) BatMap.t
+
+  type 'a set = 'a Set.t
+  type 'a for_step = (PathTree.step, 'a) BatMap.t
+  type 'a for_region = (region, 'a) BatMap.t
+
+  (* TODO: temporary type to have one place of definition, definitely still messy *)
+  type print_state = Monitor.state set for_region for_step * Monitor.state set for_region * rvtmap
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
@@ -116,28 +124,30 @@ module MakeT (Monitor: PrinterSpec) = struct
         sname vname vtype r_string ;;
 
 
-  (** Print a file location including a function name *)
-  let loc_prefix (l: Cil.location) (fname: string): PP.doc =
-    PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
-
-
-  (* TODO: temporary type to have one place of definition, definitely still messy *)
-  type print_state = Monitor.state of_steps * (region, Monitor.state list) Map.t * rvtmap
 
 
   (* TODO: We seem to be monitoring which automaton for which region was in which
      state, but we are ignoring program states *)
-  let apply_transitions (rsmap: (region, Monitor.state list) Map.t)
-    (efmap: (region, Effects.e list) Map.t): (region, Monitor.state list) Map.t =
+  let apply_transitions (rsmap: Monitor.state set for_region)
+    (efmap: Effects.e list for_region): Monitor.state set for_region =
 
     (* TODO: this arbitrarily prefers locks over unlocks! THIS IS A HUGE PROBLEM
      THAT REQUIRES CHANGING THE STATE SPACE, THE MODEL, ETC. THE BIGGEST THING
      NOW. *)
-    let apply1 _ (s: Monitor.state list option) (e: Effects.e list option) : Monitor.state list option =
-      Some (s |? [Monitor.initial_state] |> List.map (flip Monitor.transition (e |? [])))
+    let apply1 _ (s: Monitor.state set option) (e: Effects.e list option) : Monitor.state set option =
+      Some (s |? (Set.singleton Monitor.initial_state) |> Set.map (flip Monitor.transition (e |? [])))
     in Map.merge apply1 rsmap efmap ;;
 
 
+  (** Merge the old and new set of colors for a region by unioning them. Do this
+      for any region that is mentioned in either new or the old map. *)
+  let merge_colors (new_ : Monitor.state set for_region)
+    (old: Monitor.state set for_region): Monitor.state set for_region =
+      Map.merge (fun _ n o -> Some (Set.union (n |? Set.empty) (o |?  Set.empty))) new_ old ;;
+
+
+  (** Explore a step of execution, a CFG edge, without inlining.  This function
+      updates all the dictionary tracking data for printing. *)
   let step_over (print_state: print_state) (step: PathTree.step): print_state =
     (* TODO: now I have wired rsmap1 to be used here, but not other state elements *)
     let cmap, rsmap, rvtmap = print_state in
@@ -149,18 +159,14 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> List.map extract_regions
       |> Seq.of_list
       |> Map.of_seq
-      |> apply_transitions rsmap
-    in cmap, rsmap1, rvtmap ;;
+      |> apply_transitions rsmap in
+    let cmap1 = cmap
+      |> Map.modify_def Map.empty step (merge_colors rsmap1)
+    in cmap1, rsmap1, rvtmap ;;
 
 
-  (* TODO: it might be beneficial to use the PP and return it - this should
-      make the printer much faster, and pure *)
   (* TODO: not sure if the mutual recursion can be eliminated, the stack may be
-     needed. The refactoring of this function is not finished, as I decided that
-     do_step has bigger benefits to gain - and also the coroutine structure can
-     be recovered from there - which would make this one easier to refactor. *)
-
-
+     needed.  Would it help? *)
   let rec explore_paths (func: AFun.t) (inline_limit: int) (path: unit -> PathTree.t)
     (print_state: print_state): print_state =
 
@@ -198,7 +204,30 @@ module MakeT (Monitor: PrinterSpec) = struct
         step_over print_state step
 
 
-  let dump (colors: Monitor.state of_steps): unit =  ()
+  let step_kind_to_string (k: PathTree.step_kind): string =
+    match k with
+    | Stmt _ -> "Stmt"
+    | Test _ -> "Test"
+    | Goto _ -> "Goto"
+    | Ret _  -> "Ret" ;;
+
+
+  (** Print a file location including a function name *)
+  let loc_prefix (fname: string) (l: Cil.location): PP.doc =
+    PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
+
+  (** Print a single output line *)
+  let dump_step (fname: string) (step: PathTree.step) (color: Monitor.state set for_region): PP.doc =
+    PP.(loc_prefix fname step.sloc + !^ (step_kind_to_string step.kind) + newline)
+
+  (** Print all lines in the provided map *)
+  let dump_steps (fname: string) (colors: Monitor.state set for_region for_step) : unit =
+    colors
+      |> Map.enum
+      |> Enum.map (uncurry @@ dump_step fname)
+      |> List.of_enum
+      |> PP.concat
+      |> PP.to_stdout
 
 
   (** This is the main function of the module. It explores the paths in the
@@ -212,13 +241,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
-    let cmap, _, rvtmap =
+    let colors, rsmap, rvtmap =
       explore_paths func inline_limit path_tree (Map.empty, Map.empty, rvtmap) in
-      (* TODO: printed prematurely, kept here for backwards traceability *)
-      loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
+
       (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
-      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);;
+      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
+      dump_steps decl_f.svar.vname colors ;;
+
 
 end
 
