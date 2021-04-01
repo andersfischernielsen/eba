@@ -39,6 +39,8 @@ let brackets = SP.brakets
 
 let angle_brackets = SP.angle_brakets
 
+let concat = SP.concat
+
 let separate = SP.separate
 
 let newline_sep = separate newline
