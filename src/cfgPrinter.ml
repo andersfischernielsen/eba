@@ -27,73 +27,12 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   let assert_bool = OUnit2.assert_bool;;
 
-  let lock_functions = [
-    "mutex_lock";
-    "mutex_lock_nested";
-    "mutex_lock_interruptible_nested";
-    "_spin_lock";
-    "_raw_spin_lock";
-    "__raw_spin_trylock";
-    "_raw_read_lock";
-    "_raw_spin_lock_irq";
-    "_raw_spin_lock_irqsave";
-    "_raw_spin_lock_bh";
-    "spin_lock";
-    "spin_lock_irqsave";
-    "spin_lock_bh";
-    "mutex_unlock";
-    "_spin_unlock";
-    "_raw_spin_unlock";
-    "__raw_spin_unlock";
-    "_raw_read_unlock";
-    "__raw_read_unlock";
-    "_raw_spin_unlock_irq";
-    "__raw_spin_unlock_irq";
-    "_raw_spin_unlock_irqrestore";
-    "_raw_spin_unlock_bh";
-    "spin_unlock_irqrestore";
-    "spin_unlock";
-    "spin_unlock_irqrestore";
-    "spin_unlock_bh";
-  ];;
-
-  (* TODO: likely belongs elsewhere. The monitor? *)
-  let is_locking (i: Cil.instr): bool =
-    match i with
-    | Call (_, Lval (Var name, _), _, _) ->
-        List.exists ((=) name.vname) lock_functions
-    | __________________________________ -> false ;;
-
 
   (* TODO: likely belongs elsewhere. Util? *)
   let is_call (instr: Cil.instr): bool =
     match instr with
     | Cil.(Call _) -> true
     | ____________ -> false ;;
-
-  (* TODO: bcr code, likely not needed, probably to be removed, but kept here,
-     if we discover that we need it, for some time. *)
-  (* let rec getFAname (exp : Cil.exp) : string =
-    let rec explore_offset (offs:Cil.offset) = match offs with
-      |NoOffset -> ""
-      |Field (info, NoOffset) -> info.fname
-      |Field (info, o) -> info.fname ^"."^(explore_offset o)
-      |Index (e,o) -> (getFAname e)^"[i]"^(explore_offset o) in
-    match exp with
-    |Lval (Var name,o) -> let offr = explore_offset o in if offr <> "" then name.vname ^"."^offr else name.vname
-    |Lval (Mem e, o) -> let offr = explore_offset o in if offr <> "" then (getFAname e)^"."^offr else (getFAname e)
-    |CastE (_typeOfCast, e) -> getFAname e (* Cast of a variable *)
-    |Const (_) -> "const"                  (* Constant *)
-    |BinOp (_,e1,e2,_) -> (getFAname e1) ^ "-" ^ (getFAname e2)
-    |AddrOf lval -> getFAname (Lval lval)
-    |UnOp (_,e,_) -> getFAname e
-    |StartOf _ -> "#startOf#"
-    |SizeOfE _ -> "#sizeOfE#"
-    |SizeOf _ -> "#sizeOf#"
-    |AlignOf _ -> "#typeAlign#"
-    |AlignOfE _ -> "#typeAlign#"
-    |_ -> "Unknown";; *)
-
 
   (* TODO: this is not the right module to define this type, and perhaps
      already something like that exists. But helps for now. Eliminate. *)
@@ -182,10 +121,6 @@ module MakeT (Monitor: PrinterSpec) = struct
     PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
 
 
-  (* TODO This appears to be used by the bcr code, so likely can be replaced by
-      another fixpoint structure for our purposes *)
-  (* let cil_tmp_dir = Hashtbl.create 50 *)
-
   (* TODO: temporary type to have one place of definition, definitely still messy *)
   type print_state = Monitor.state of_steps * (region, Monitor.state list) Map.t * rvtmap
 
@@ -261,6 +196,99 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> Option.default print_state
       else
         step_over print_state step
+
+
+  let dump (colors: Monitor.state of_steps): unit =  ()
+
+
+  (** This is the main function of the module. It explores the paths in the
+      [file] and prints the coloring for the lines traversed (according to a
+      lock monitor). *)
+  let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
+    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in
+    let global = AFile.global_variables_and_regions file |> Map.to_seq in
+    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
+      |> Seq.map (fun e -> e, AFun.regions_of func e) in
+    let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
+    let rvtmap = Map.of_seq rvtseq in
+    let path_tree = PathTree.paths_of func in
+    let cmap, _, rvtmap =
+      explore_paths func inline_limit path_tree (Map.empty, Map.empty, rvtmap) in
+      (* TODO: printed prematurely, kept here for backwards traceability *)
+      loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
+      (* TODO: this might be failing when we have aliases *)
+      assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
+      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);;
+
+end
+
+module Make (P: PrinterSpec): Printer = MakeT (P)
+
+  (* let lock_functions = [
+    "mutex_lock";
+    "mutex_lock_nested";
+    "mutex_lock_interruptible_nested";
+    "_spin_lock";
+    "_raw_spin_lock";
+    "__raw_spin_trylock";
+    "_raw_read_lock";
+    "_raw_spin_lock_irq";
+    "_raw_spin_lock_irqsave";
+    "_raw_spin_lock_bh";
+    "spin_lock";
+    "spin_lock_irqsave";
+    "spin_lock_bh";
+    "mutex_unlock";
+    "_spin_unlock";
+    "_raw_spin_unlock";
+    "__raw_spin_unlock";
+    "_raw_read_unlock";
+    "__raw_read_unlock";
+    "_raw_spin_unlock_irq";
+    "__raw_spin_unlock_irq";
+    "_raw_spin_unlock_irqrestore";
+    "_raw_spin_unlock_bh";
+    "spin_unlock_irqrestore";
+    "spin_unlock";
+    "spin_unlock_irqrestore";
+    "spin_unlock_bh";
+  ];;
+
+  (* TODO: likely belongs elsewhere. The monitor? *)
+  let is_locking (i: Cil.instr): bool =
+    match i with
+    | Call (_, Lval (Var name, _), _, _) ->
+        List.exists ((=) name.vname) lock_functions
+    | __________________________________ -> false ;;
+*)
+
+  (* TODO: bcr code, likely not needed, probably to be removed, but kept here,
+     if we discover that we need it, for some time. *)
+  (* let rec getFAname (exp : Cil.exp) : string =
+    let rec explore_offset (offs:Cil.offset) = match offs with
+      |NoOffset -> ""
+      |Field (info, NoOffset) -> info.fname
+      |Field (info, o) -> info.fname ^"."^(explore_offset o)
+      |Index (e,o) -> (getFAname e)^"[i]"^(explore_offset o) in
+    match exp with
+    |Lval (Var name,o) -> let offr = explore_offset o in if offr <> "" then name.vname ^"."^offr else name.vname
+    |Lval (Mem e, o) -> let offr = explore_offset o in if offr <> "" then (getFAname e)^"."^offr else (getFAname e)
+    |CastE (_typeOfCast, e) -> getFAname e (* Cast of a variable *)
+    |Const (_) -> "const"                  (* Constant *)
+    |BinOp (_,e1,e2,_) -> (getFAname e1) ^ "-" ^ (getFAname e2)
+    |AddrOf lval -> getFAname (Lval lval)
+    |UnOp (_,e,_) -> getFAname e
+    |StartOf _ -> "#startOf#"
+    |SizeOfE _ -> "#sizeOfE#"
+    |SizeOf _ -> "#sizeOf#"
+    |AlignOf _ -> "#typeAlign#"
+    |AlignOfE _ -> "#typeAlign#"
+    |_ -> "Unknown";; *)
+
+
+  (* TODO This appears to be used by the bcr code, so likely can be replaced by
+      another fixpoint structure for our purposes *)
+  (* let cil_tmp_dir = Hashtbl.create 50 *)
 
 
         (* TODO from bcr
@@ -362,25 +390,3 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
 
-  (** This is the main function of the module. It explores the paths in the
-      [file] and prints the coloring for the lines traversed (according to a
-      lock monitor). *)
-  let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
-    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in
-    let global = AFile.global_variables_and_regions file |> Map.to_seq in
-    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
-      |> Seq.map (fun e -> e, AFun.regions_of func e) in
-    let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
-    let rvtmap = Map.of_seq rvtseq in
-    let path_tree = PathTree.paths_of func in
-    let cmap, _, rvtmap =
-      explore_paths func inline_limit path_tree (Map.empty, Map.empty, rvtmap) in
-      (* TODO: printed prematurely, kept here for backwards traceability *)
-      loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
-      (* TODO: this might be failing when we have aliases *)
-      assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
-      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);;
-
-end
-
-module Make (P: PrinterSpec): Printer = MakeT (P)
