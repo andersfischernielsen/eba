@@ -224,45 +224,43 @@ module MakeT (Monitor: PrinterSpec) = struct
      needed. The refactoring of this function is not finished, as I decided that
      do_step has bigger benefits to gain - and also the coroutine structure can
      be recovered from there - which would make this one easier to refactor. *)
-  let rec explore_paths (func: AFun.t) (inline_limit: int)
-    (print_state: print_state) (path: unit -> PathTree.t): print_state =
+
+
+  let rec explore_paths (func: AFun.t) (inline_limit: int) (path: unit -> PathTree.t)
+    (print_state: print_state): print_state =
+
     match path () with
+
     | Seq (step, remaining) ->
-      let print_state1 = do_step func inline_limit print_state step
-      in explore_paths func inline_limit print_state1 remaining
+      step |> step_into func inline_limit print_state
+           |> explore_paths func inline_limit remaining
+
     | Assume (_, _, remaining) ->
-       explore_paths func inline_limit print_state remaining
+      explore_paths func inline_limit remaining print_state
+
     | If (true_path, false_path) ->
-      let print_state1 = explore_paths func inline_limit print_state true_path
-      in explore_paths func inline_limit print_state1 false_path
+      let print_state1 = explore_paths func inline_limit true_path print_state
+      in explore_paths func inline_limit false_path print_state1
+
     | Nil -> print_state
 
 
+
+  (* TODO: worried that this wrongly consumes the inlining limit, even if there
+     are no calls *)
   and step_into (func: AFun.t) (inline_limit: int) (print_state: print_state)
     (step: PathTree.step): print_state =
-      Some step
-        |> Option.filter (PathTree.exists_in_stmt is_call)
-        |> Option.map (PathTree.inline func)
-        |> tap (assert_bool "inline failed!" % Option.is_none)
-        |> (flip Option.bind) identity
-        |> Option.map snd
-        |> Option.map (explore_paths func (inline_limit - 1) print_state)
-        |> Option.default print_state
-
-
-  and do_step (func: AFun.t) (inline_limit: int) (print_state: print_state)
-    (step: PathTree.step): print_state =
-
-    let cmap, rsmap, rvtmap =
-      if inline_limit > 0 then step_into func inline_limit print_state step
-      else step_over print_state step in
-
-    (* TODO: this is of the same type as rsmap, but the rest of the function
-      works only on interesting monitors *)
-    (* TODO: Seems useful for killing monitors following a Boolean predicate. *)
-    let rsmap1 = Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) rsmap in
-    let rsmap2 = Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
-    (cmap, rsmap2, rvtmap);;
+      if inline_limit > 0 then
+        Some step
+          |> Option.filter (PathTree.exists_in_stmt is_call)
+          |> Option.map (PathTree.inline func)
+          |> tap (assert_bool "inline failed!" % Option.is_none)
+          |> (flip Option.bind) identity
+          |> Option.map snd
+          |> Option.map (fun step -> explore_paths func (inline_limit - 1) step print_state)
+          |> Option.default print_state
+      else
+        step_over print_state step
 
 
         (* TODO from bcr
@@ -376,7 +374,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
     let cmap, _, rvtmap =
-      explore_paths func inline_limit (Map.empty, Map.empty, rvtmap) path_tree in
+      explore_paths func inline_limit path_tree (Map.empty, Map.empty, rvtmap) in
       (* TODO: printed prematurely, kept here for backwards traceability *)
       loc_prefix decl_f.svar.vdecl decl_f.svar.vname |> PP.to_stdout;
       (* TODO: this might be failing when we have aliases *)

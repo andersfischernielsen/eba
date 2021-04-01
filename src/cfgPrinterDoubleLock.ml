@@ -24,9 +24,11 @@ module Spec: CfgPrinter.PrinterSpec = struct
     | Red, [Mem(Unlock, _); _] -> Black
     | ________________________ -> current
 
-  let is_in_interesting_section _ = true
+  (* ignored in cfg printer *)
+  let is_in_interesting_section _ : bool = true
 
-  let is_in_final_state state = state = Black
+  (* ignored in cfg printer *)
+  let is_in_final_state _ : bool = false
 
   let string_of_state state =
     match state with
