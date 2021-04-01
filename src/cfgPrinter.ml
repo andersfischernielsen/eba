@@ -224,22 +224,17 @@ module MakeT (Monitor: PrinterSpec) = struct
      needed. The refactoring of this function is not finished, as I decided that
      do_step has bigger benefits to gain - and also the coroutine structure can
      be recovered from there - which would make this one easier to refactor. *)
-  let rec explore_paths  (func: AFun.t) (inline_limit: int)
+  let rec explore_paths (func: AFun.t) (inline_limit: int)
     (print_state: print_state) (path: unit -> PathTree.t): print_state =
     match path () with
     | Seq (step, remaining) ->
-        begin
-          (* TODO: is this option needed here? *)
-          match do_step func inline_limit print_state step with
-          | Some print_state1 ->
-              explore_paths func inline_limit print_state1 remaining
-          | None -> print_state
-        end
+      let print_state1 = do_step func inline_limit print_state step
+      in explore_paths func inline_limit print_state1 remaining
     | Assume (_, _, remaining) ->
        explore_paths func inline_limit print_state remaining
     | If (true_path, false_path) ->
-        let print_state1 = explore_paths func inline_limit print_state true_path
-        in explore_paths func inline_limit print_state1 false_path
+      let print_state1 = explore_paths func inline_limit print_state true_path
+      in explore_paths func inline_limit print_state1 false_path
     | Nil -> print_state
 
 
@@ -256,7 +251,7 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
   and do_step (func: AFun.t) (inline_limit: int) (print_state: print_state)
-    (step: PathTree.step): print_state option =
+    (step: PathTree.step): print_state =
 
     let cmap, rsmap, rvtmap =
       if inline_limit > 0 then step_into func inline_limit print_state step
@@ -264,19 +259,10 @@ module MakeT (Monitor: PrinterSpec) = struct
 
     (* TODO: this is of the same type as rsmap, but the rest of the function
       works only on interesting monitors *)
-    (* TODO: this seems to be useful for killing monitors following a Boolean
-       predicate. *)
-    let rsmap1 =
-      Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) rsmap in
-
-    begin
-      if not (Map.is_empty rsmap1)
-      then begin
-       let without_monitors_in_final_states =
-         Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
-         Some (Tuple3.first print_state, without_monitors_in_final_states, rvtmap)
-    end else None
-    end ;;
+    (* TODO: Seems useful for killing monitors following a Boolean predicate. *)
+    let rsmap1 = Map.filter (fun _ b -> List.exists Monitor.is_in_interesting_section b) rsmap in
+    let rsmap2 = Map.map (fun state_list -> List.filter (fun s -> not (Monitor.is_in_final_state s)) state_list) rsmap in
+    (cmap, rsmap2, rvtmap);;
 
 
         (* TODO from bcr
