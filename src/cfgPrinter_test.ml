@@ -24,7 +24,7 @@ let cmp_colors (a: M.state P.set P.for_region) (b: M.state P.set P.for_region): 
 let test_merge_colors _ =
   let r1 = Region.meta () in
   let r2 = Region.meta () in
-  let n = Set.of_list [M.Red; M.Black] in
+  let n = Set.of_list [M.Orange; M.Black] in
   let o = Set.of_list [M.Black] in
   let nm1, om1 = Map.singleton r1 n, Map.singleton r1 o in
   let nm2, om2 = Map.singleton r1 n, Map.singleton r2 o in
