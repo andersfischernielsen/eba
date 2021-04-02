@@ -32,7 +32,7 @@ module SpecT = struct
 
   let string_of_state state =
     match state with
-    | Red 	-> "orange"
+    | Red 	-> "red"
     | Black 	-> "black"
 
 end

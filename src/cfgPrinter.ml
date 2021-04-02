@@ -46,7 +46,10 @@ module MakeT (Monitor: PrinterSpec) = struct
   type 'a for_region = (region, 'a) BatMap.t
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
-  type print_state = Monitor.state set for_region for_step * Monitor.state set for_region * rvtmap
+  type print_state =
+    Monitor.state set for_region for_step *
+    Monitor.state set for_region *
+    rvtmap
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
@@ -201,9 +204,10 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> Option.map (fun step -> explore_paths func (inline_limit - 1) step print_state)
           |> Option.default print_state
       else
-        step_over print_state step
+        step_over print_state step ;;
 
 
+  (* TODO: remove once debugging is over *)
   let step_kind_to_string (k: PathTree.step_kind): string =
     match k with
     | Stmt _ -> "Stmt"
@@ -212,22 +216,63 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Ret _  -> "Ret" ;;
 
 
-  (** Print a file location including a function name *)
-  let loc_prefix (fname: string) (l: Cil.location): PP.doc =
-    PP.(Utils.Location.pp l + colon + (!^ fname) + colon)
+  (** Format the file info and the prefix *)
+  let format_prefix (file: string) (func: string) : PP.doc =
+    PP.(
+      words "- func:" ++ double_quotes (!^ func) + newline +
+      indent (
+        !^ "file:" ++ double_quotes (!^ file) + newline +
+        !^ "lines:" + newline
+      )
+   )
+
+  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
+    let color_docs = PP.(colors
+      |> Set.to_list
+      |> List.map (Monitor.string_of_state)
+      |> List.map (!^)
+      |> comma_sep
+      |> brackets
+    )
+    in PP.(
+      words "- region:" ++ Region.pp region + newline +
+      indent (
+        !^ "colors:" ++ color_docs + newline
+      )
+    ) ;;
 
   (** Print a single output line *)
-  let dump_step (fname: string) (step: PathTree.step) (color: Monitor.state set for_region): PP.doc =
-    PP.(loc_prefix fname step.sloc + !^ (step_kind_to_string step.kind) + newline)
+  let format_step  (step: PathTree.step) (colors: Monitor.state set for_region): PP.doc =
+    PP.(
+      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
+      indent (
+        !^ "code:" ++ double_quotes (PathTree.pp_step step) + newline +
+        !^ "colors:" + newline + (
+          colors
+          |> Map.bindings
+          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
+          |> List.map (uncurry format_colors)
+          |> concat
+          |> indent
+        )
+      )
+    )
+
+  let cmp_loc (sc1: PathTree.step * Monitor.state set for_region)
+    (sc2: PathTree.step * Monitor.state set for_region): int =
+      let s1, s2 = fst sc1, fst sc2 in
+      Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
   (** Print all lines in the provided map *)
-  let dump_steps (fname: string) (colors: Monitor.state set for_region for_step) : unit =
-    colors
-      |> Map.enum
-      |> Enum.map (uncurry @@ dump_step fname)
-      |> List.of_enum
-      |> PP.concat
-      |> PP.to_stdout
+  let dump_steps (file: string) (func: string) (colors: Monitor.state set for_region for_step) : unit =
+    PP.(colors
+      |> Map.bindings
+      |> List.stable_sort cmp_loc
+      |> List.map (uncurry format_step)
+      |> concat
+      |> indent
+      |> append (format_prefix file func)
+      |> SmartPrint.to_stdout 80 2)
 
 
   (** This is the main function of the module. It explores the paths in the
@@ -247,7 +292,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      dump_steps decl_f.svar.vname colors ;;
+      dump_steps decl_f.svar.vdecl.file  decl_f.svar.vname colors ;;
 
 
 end

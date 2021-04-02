@@ -31,11 +31,15 @@ let int = SP.OCaml.int
 
 let prefix str doc = !^ str + doc
 
+let append = SP.append
+
 let parens = SP.parens
 
 let braces = SP.braces
 
 let brackets = SP.brakets
+
+let double_quotes = SP.double_quotes
 
 let angle_brackets = SP.angle_brakets
 
@@ -54,6 +58,8 @@ let semi_sep = separate semi
 let indent = SP.indent
 
 let words = SP.words
+
+let nest = SP.nest
 
 let to_string = SP.to_string 70 4
 
