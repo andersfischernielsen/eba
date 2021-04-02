@@ -219,9 +219,9 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** Format the file info and the prefix *)
   let format_prefix (file: string) (func: string) : PP.doc =
     PP.(
-      words "- func:" ++ double_quotes (!^ func) + newline +
+      words "- func:" ++ !^ func + newline +
       indent (
-        !^ "file:" ++ double_quotes (!^ file) + newline +
+        !^ "file:" ++ !^ file + newline +
         !^ "lines:" + newline
       )
    )
@@ -235,7 +235,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> brackets
     )
     in PP.(
-      words "- region:" ++ Region.pp region + newline +
+      words "- region:" ++ double_quotes (Region.pp region) + newline +
       indent (
         !^ "colors:" ++ color_docs + newline
       )
@@ -246,7 +246,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     PP.(
       words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
       indent (
-        !^ "code:" ++ double_quotes (PathTree.pp_step step) + newline +
+        !^ "code:" ++ PathTree.pp_step step + newline +
         !^ "colors:" + newline + (
           colors
           |> Map.bindings
