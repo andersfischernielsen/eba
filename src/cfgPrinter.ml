@@ -49,11 +49,15 @@ module MakeT (Monitor: PrinterSpec) = struct
   type 'a for_step = (PathTree.step, 'a) BatMap.t
   type 'a for_region = (region, 'a) BatMap.t
 
+  type configuration = Monitor.state set for_region * PathTree.step
+
   (* TODO: temporary type to have one place of definition, definitely still messy *)
-  type print_state =
-    Monitor.state set for_region for_step *
-    Monitor.state set for_region *
-    rvtmap
+  type print_state = {
+    colors : Monitor.state set for_region for_step ;
+    visited: configuration set ;
+    rsmap  : Monitor.state set for_region ; (* remove? *)
+    rvtmap : rvtmap                         (* remove? *)
+  }
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
@@ -156,8 +160,6 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** Explore a step of execution, a CFG edge, without inlining.  This function
       updates all the dictionary tracking data for printing. *)
   let step_over (print_state: print_state) (step: PathTree.step): print_state =
-    (* TODO: now I have wired rsmap1 to be used here, but not other state elements *)
-    let cmap, rsmap, rvtmap = print_state in
     let rsmap1 = step.effs.may
       |> Effects.EffectSet.filter Monitor.is_in_transition_labels
       |> Effects.EffectSet.to_list
@@ -166,10 +168,10 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> List.map extract_regions
       |> Seq.of_list
       |> Map.of_seq
-      |> apply_transitions rsmap in
-    let cmap1 = cmap
+      |> apply_transitions print_state.rsmap in
+    let colors1 = print_state.colors
       |> Map.modify_def Map.empty step (merge_colors rsmap1)
-    in cmap1, rsmap1, rvtmap ;;
+    in { print_state with colors = colors1; rsmap = rsmap1 } ;;
 
 
   (* TODO: not sure if the mutual recursion can be eliminated, the stack may be
@@ -290,8 +292,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
-    let colors, rsmap, rvtmap =
-      explore_paths func inline_limit path_tree (Map.empty, Map.empty, rvtmap) in
+    let initial_print_state = {
+      colors = Map.empty ;
+      visited = Set.empty ;
+      rsmap = Map.empty ;
+      rvtmap = rvtmap
+    } in
+    let { colors = colors; visited = visited; rsmap = rsmap; rvtmap = rvtmap } =
+      explore_paths func inline_limit path_tree initial_print_state in
 
       (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
