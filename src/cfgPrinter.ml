@@ -4,6 +4,7 @@ open Type
 open Abs
 open BatTuple.Tuple2
 
+
 module type PrinterSpec = sig
 
   type state
@@ -23,6 +24,9 @@ module type Printer = sig
 
 end
 
+(** Lines for which no activity of the monitor is observed are presently not
+    printed. So for double lock, for instance, assume that these attracted no
+    colors (which should mean black). *)
 module MakeT (Monitor: PrinterSpec) = struct
 
   module Monitor = Monitor
@@ -236,9 +240,8 @@ module MakeT (Monitor: PrinterSpec) = struct
     )
     in PP.(
       words "- region:" ++ double_quotes (Region.pp region) + newline +
-      indent (
-        !^ "colors:" ++ color_docs + newline
-      )
+      if Set.is_empty colors then empty
+      else !^ "colors:" ++ color_docs + newline |> indent
     ) ;;
 
   (** Print a single output line *)
@@ -246,8 +249,9 @@ module MakeT (Monitor: PrinterSpec) = struct
     PP.(
       words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
       indent (
-        !^ "code:" ++ PathTree.pp_step step + newline +
-        !^ "colors:" + newline + (
+        !^ "source:" ++ PathTree.pp_step step + newline +
+        if Map.is_empty colors then empty
+        else !^ "coloring:" + newline + (
           colors
           |> Map.bindings
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))

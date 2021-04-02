@@ -8,23 +8,23 @@ open Effects
     abstraction), it tries to recover heuristically after experiencing
     conflicts (lock-lock, unlock-unlock) or nondeterminism.
 
-    The state space is a powerset of the states of a regular monitor. **)
+    The state space is a powerset of the states of a regular monitor. *)
 module SpecT = struct
 
   type state =
-    | Orange       (* The monitor is in a critical section *)
-    | Black        (* The monitor is outside critical sections *)
+    | Orange      (* The monitor is in a critical section *)
+    | Black       (* The monitor is outside critical sections *)
     | BlackOrange (* Either inside or outside; either possible *)
-    | Confused     (* Seen a bug, double lock/unlock, trying to recover *)
+    | Confused    (* Seen a bug, double lock/unlock, trying to recover *)
 
   let initial_state = Black
   let transition_labels = [Lock; Unlock]
 
-  let locks effect: bool =
-    List.exists (function Mem (Lock, _) -> true | _ -> false) effect ;;
+  let locks effects: bool =
+    List.exists (function Mem (Lock, _) -> true | _ -> false) effects ;;
 
-  let unlocks effect: bool =
-    List.exists (function Mem (Unlock, _) -> true | _ -> false) effect ;;
+  let unlocks effects: bool =
+    List.exists (function Mem (Unlock, _) -> true | _ -> false) effects ;;
 
   let is_in_transition_labels (effect: Effects.e): bool =
     match effect with
