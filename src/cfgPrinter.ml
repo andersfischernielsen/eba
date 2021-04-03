@@ -31,40 +31,115 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   module Monitor = Monitor
 
+  (** step.lenv seems to be not stable across several references to the same
+      program point.  I am not entirely sure why. But this boolean equality
+      test on steps seems to work (just ignoring step.lenv) for detecting
+      whether we have seen a step. *)
+  module StepMap = Map.Make (struct
+    type t = PathTree.step
+    let compare (s1: t) (s2: t): int =
+      if s1.kind = s2.kind then
+        if s1.effs = s2.effs then Pervasives.compare s1.sloc s2.sloc
+        else Pervasives.compare s1.effs s2.effs
+      else Pervasives.compare s1.kind s2.kind
+  end)
+
+
   let assert_bool = OUnit2.assert_bool;;
 
 
-  (* TODO: likely belongs elsewhere. Util? *)
+  (* TODO: likely belongs elsewhere. Util? Might not be needed, seems to be from BCR *)
   let is_call (instr: Cil.instr): bool =
     match instr with
     | Cil.(Call _) -> true
     | ____________ -> false ;;
 
-  (* TODO: this is not the right module to define this type, and perhaps
-     already something like that exists. But helps for now. Eliminate. *)
   (** maps a region number to a variable name and a type name/string *)
   type rvtmap = (int, name * name) BatMap.t
 
   type 'a set = 'a Set.t
-  type 'a for_step = (PathTree.step, 'a) BatMap.t
-  type 'a for_region = (region, 'a) BatMap.t
-
-  type configuration = Monitor.state set for_region * PathTree.step
+  (* TODO: concerned that Regions.m might still ignore zonking *)
+  type config = Monitor.state set Regions.m
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
-  type print_state = {
-    colors : Monitor.state set for_region for_step ;
-    visited: configuration set ;
-    rsmap  : Monitor.state set for_region ; (* remove? *)
-    rvtmap : rvtmap                         (* remove? *)
+  type progress = {
+    visited: config StepMap.t ;
+    current: config ;
   }
+
+  (* TODO: remove once debugging is over *)
+  let step_kind_to_string (k: PathTree.step_kind): string =
+    match k with
+    | Stmt _ -> "Stmt"
+    | Test _ -> "Test"
+    | Goto _ -> "Goto"
+    | Ret _  -> "Ret" ;;
+
+
+  (** Format the file info and the prefix *)
+  let format_prefix (file: string) (func: string) : PP.doc =
+    PP.(
+      words "- func:" ++ !^ func + newline +
+      indent (
+        !^ "file:" ++ !^ file + newline +
+        !^ "lines:" + newline
+      )
+   )
+
+  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
+    let color_docs = PP.(colors
+      |> Set.to_list
+      |> List.map (Monitor.string_of_state)
+      |> List.map (!^)
+      |> comma_sep
+      |> brackets
+    )
+    in PP.(
+      words "- region:" ++ double_quotes (Region.pp region) + newline +
+      if Set.is_empty colors then empty
+      else !^ "colors:" ++ color_docs + newline |> indent
+    ) ;;
+
+  (** Print a single output line *)
+  let format_step (step: PathTree.step) (colors: config): PP.doc =
+    PP.(
+      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
+      indent (
+        !^ "source:" ++ PathTree.pp_step step + newline +
+        if Regions.Map.is_empty colors then empty
+        else !^ "coloring:" + newline + (
+          colors
+          |> Regions.Map.bindings
+          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
+          |> List.map (uncurry format_colors)
+          |> concat
+          |> indent
+        )
+      )
+    )
+
+  let cmp_loc (sc1: PathTree.step * config) (sc2: PathTree.step * config): int =
+      let s1, s2 = fst sc1, fst sc2 in
+      Pervasives.compare s1.sloc.line s2.sloc.line ;;
+
+  (** Print all lines in the provided map *)
+  let format_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
+    PP.(colors
+      |> StepMap.bindings
+      |> List.stable_sort cmp_loc
+      |> List.map (uncurry format_step)
+      |> concat
+      |> indent
+      |> append (format_prefix file func)
+    ) ;;
+
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
   let get_region e =
     match e with
     | Effects.Mem (_, region) -> Some (region, e)
-    | _______________________ -> None;;
+    | _______________________ -> None ;;
 
   let ty_name (v: Cil.varinfo): name =
     Cil.d_type () v.vtype |> Pretty.sprint ~width:80;;
@@ -136,70 +211,119 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
 
+  let apply_transitions (predecessors: config)
+    (efmap: Effects.e list Regions.m): config =
+    let f _ (s: Monitor.state set option) (e: Effects.e list option): Monitor.state set option =
+      Some (s
+        |? Set.singleton Monitor.initial_state
+        |> Set.map @@ flip Monitor.transition (e |? [])
+      )
+    in Regions.Map.merge f predecessors efmap ;;
 
-  (* TODO: We seem to be monitoring which automaton for which region was in which
-     state, but we are ignoring program states *)
-  let apply_transitions (rsmap: Monitor.state set for_region)
-    (efmap: Effects.e list for_region): Monitor.state set for_region =
 
-    (* TODO: this arbitrarily prefers locks over unlocks! THIS IS A HUGE PROBLEM
-     THAT REQUIRES CHANGING THE STATE SPACE, THE MODEL, ETC. THE BIGGEST THING
-     NOW. *)
-    let apply1 _ (s: Monitor.state set option) (e: Effects.e list option) : Monitor.state set option =
-      Some (s |? (Set.singleton Monitor.initial_state) |> Set.map (flip Monitor.transition (e |? [])))
-    in Map.merge apply1 rsmap efmap ;;
+  (* TODO: remove *)
+  let print_visited (visited: config StepMap.t): PP.doc =
+    PP.(words "configuration start" +
+        indent (
+          visited
+          |> StepMap.bindings
+          |> List.map (uncurry format_step)
+          |> concat
+         ) + newline + words "configuration end" + newline);;
 
+  (* TODO: remove *)
+  let print_rsmap1 (region: region) (states: Monitor.state set): PP.doc =
+    PP.(Region.pp region ++ !^ "->" ++
+        brackets (states
+        |> Set.to_list
+        |> List.map (fun s -> !^ (Monitor.string_of_state s))
+        |> comma_sep) +  newline);;
+
+  (* TODO: remove *)
+  let print_rsmap (rsmap: config): PP.doc =
+    PP.(words "rsmap start" + newline +
+        indent (
+          rsmap
+          |> Regions.Map.bindings
+          |> List.map (uncurry print_rsmap1)
+          |> concat
+        ) + words "rsmap end" + newline);;
+
+  (** TODO: remove *)
+  let eq_step_ (step: PathTree.step) (visited: config StepMap.t): bool =
+    let cmp (s: PathTree.step) _ : bool =
+      step.kind = s.kind && step.effs = s.effs && step.sloc = s.sloc
+    in StepMap.exists cmp visited ;;
+
+  let conf_diff (proposal: config) (seen: config): config =
+    let f _ proposed seen =
+      match proposed,seen with
+      | None, None -> None
+      | Some _, None -> proposed
+      | None, Some _ -> None
+      | Some p, Some s -> Some (Set.diff p s) in
+    Regions.Map.merge f proposal seen ;;
 
   (** Merge the old and new set of colors for a region by unioning them. Do this
       for any region that is mentioned in either new or the old map. *)
-  let merge_colors (new_ : Monitor.state set for_region)
-    (old: Monitor.state set for_region): Monitor.state set for_region =
-      Map.merge (fun _ n o -> Some (Set.union (n |? Set.empty) (o |?  Set.empty))) new_ old ;;
+  let conf_union (proposal: config) (seen: config): config =
+    Regions.Map.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
+  let visit (step: PathTree.step) (newly_explored: config)
+    (visited: config StepMap.t): config StepMap.t =
+    StepMap.modify_def Regions.Map.empty step (conf_union newly_explored) visited ;;
+
+  let find_config (step: PathTree.step) (visited: config StepMap.t)
+  : config =
+    visited |> StepMap.find_opt step |? Regions.Map.empty
+  ;;
 
   (** Explore a step of execution, a CFG edge, without inlining.  This function
-      updates all the dictionary tracking data for printing. *)
-  let step_over (print_state: print_state) (step: PathTree.step): print_state =
-    let rsmap1 = step.effs.may
-      |> Effects.EffectSet.filter Monitor.is_in_transition_labels
-      |> Effects.EffectSet.to_list
-      |> List.filter_map get_region
-      |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
-      |> List.map extract_regions
-      |> Seq.of_list
-      |> Map.of_seq
-      |> apply_transitions print_state.rsmap in
-    let colors1 = print_state.colors
-      |> Map.modify_def Map.empty step (merge_colors rsmap1)
-    in { print_state with colors = colors1; rsmap = rsmap1 } ;;
+      updates all the dictionary tracking data for printing. It only applies the
+      step to monitors that have not been applied to this step. Otherwise the
+      progress state is not changed.  *)
+  let step_over (progress: progress) (step: PathTree.step): progress =
+    let seen = find_config step progress.visited in
+    let to_visit = conf_diff progress.current seen
+    in {
+      current = step.effs.may
+        |> Effects.EffectSet.filter Monitor.is_in_transition_labels
+        |> Effects.EffectSet.to_list
+        |> List.filter_map get_region
+        |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
+        |> List.map extract_regions
+        |> Seq.of_list
+        |> Regions.Map.of_seq
+        |> apply_transitions to_visit ;
+      visited = visit step to_visit progress.visited } ;;
 
 
   (* TODO: not sure if the mutual recursion can be eliminated, the stack may be
      needed.  Would it help? *)
   let rec explore_paths (func: AFun.t) (inline_limit: int) (path: unit -> PathTree.t)
-    (print_state: print_state): print_state =
+    (progress: progress): progress =
 
     match path () with
 
     | Seq (step, remaining) ->
-      step |> step_into func inline_limit print_state
+      step |> step_into func inline_limit progress
            |> explore_paths func inline_limit remaining
 
     | Assume (_, _, remaining) ->
-      explore_paths func inline_limit remaining print_state
+      explore_paths func inline_limit remaining progress
 
     | If (true_path, false_path) ->
-      let print_state1 = explore_paths func inline_limit true_path print_state
-      in explore_paths func inline_limit false_path print_state1
+      let progress1 = explore_paths func inline_limit true_path progress
+      in explore_paths func inline_limit false_path progress1
 
-    | Nil -> print_state
+    | Nil -> progress
 
 
 
   (* TODO: worried that this wrongly consumes the inlining limit, even if there
      are no calls *)
-  and step_into (func: AFun.t) (inline_limit: int) (print_state: print_state)
-    (step: PathTree.step): print_state =
+  and step_into (func: AFun.t) (inline_limit: int) (progress: progress)
+    (step: PathTree.step): progress =
       if inline_limit > 0 then
         Some step
           |> Option.filter (PathTree.exists_in_stmt is_call)
@@ -207,78 +331,12 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> tap (assert_bool "inline failed!" % Option.is_none)
           |> (flip Option.bind) identity
           |> Option.map snd
-          |> Option.map (fun step -> explore_paths func (inline_limit - 1) step print_state)
-          |> Option.default print_state
+          |> Option.map (fun step -> explore_paths func (inline_limit - 1) step progress)
+          |> Option.default progress
       else
-        step_over print_state step ;;
+        step_over progress step ;;
 
 
-  (* TODO: remove once debugging is over *)
-  let step_kind_to_string (k: PathTree.step_kind): string =
-    match k with
-    | Stmt _ -> "Stmt"
-    | Test _ -> "Test"
-    | Goto _ -> "Goto"
-    | Ret _  -> "Ret" ;;
-
-
-  (** Format the file info and the prefix *)
-  let format_prefix (file: string) (func: string) : PP.doc =
-    PP.(
-      words "- func:" ++ !^ func + newline +
-      indent (
-        !^ "file:" ++ !^ file + newline +
-        !^ "lines:" + newline
-      )
-   )
-
-  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
-    let color_docs = PP.(colors
-      |> Set.to_list
-      |> List.map (Monitor.string_of_state)
-      |> List.map (!^)
-      |> comma_sep
-      |> brackets
-    )
-    in PP.(
-      words "- region:" ++ double_quotes (Region.pp region) + newline +
-      if Set.is_empty colors then empty
-      else !^ "colors:" ++ color_docs + newline |> indent
-    ) ;;
-
-  (** Print a single output line *)
-  let format_step  (step: PathTree.step) (colors: Monitor.state set for_region): PP.doc =
-    PP.(
-      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
-      indent (
-        !^ "source:" ++ PathTree.pp_step step + newline +
-        if Map.is_empty colors then empty
-        else !^ "coloring:" + newline + (
-          colors
-          |> Map.bindings
-          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
-          |> List.map (uncurry format_colors)
-          |> concat
-          |> indent
-        )
-      )
-    )
-
-  let cmp_loc (sc1: PathTree.step * Monitor.state set for_region)
-    (sc2: PathTree.step * Monitor.state set for_region): int =
-      let s1, s2 = fst sc1, fst sc2 in
-      Pervasives.compare s1.sloc.line s2.sloc.line ;;
-
-  (** Print all lines in the provided map *)
-  let dump_steps (file: string) (func: string) (colors: Monitor.state set for_region for_step) : unit =
-    PP.(colors
-      |> Map.bindings
-      |> List.stable_sort cmp_loc
-      |> List.map (uncurry format_step)
-      |> concat
-      |> indent
-      |> append (format_prefix file func)
-      |> SmartPrint.to_stdout 80 2)
 
 
   (** This is the main function of the module. It explores the paths in the
@@ -292,20 +350,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let path_tree = PathTree.paths_of func in
-    let initial_print_state = {
-      colors = Map.empty ;
-      visited = Set.empty ;
-      rsmap = Map.empty ;
-      rvtmap = rvtmap
-    } in
-    let { colors = colors; visited = visited; rsmap = rsmap; rvtmap = rvtmap } =
-      explore_paths func inline_limit path_tree initial_print_state in
+    let initial_progress = { visited = StepMap.empty ; current = Regions.Map.empty } in
+    let outcome = explore_paths func inline_limit path_tree initial_progress in
 
       (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      dump_steps decl_f.svar.vdecl.file  decl_f.svar.vname colors ;;
-
+      format_steps decl_f.svar.vdecl.file  decl_f.svar.vname outcome.visited
+        |> SmartPrint.to_stdout 80 2;;
 
 end
 
