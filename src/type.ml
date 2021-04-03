@@ -491,7 +491,7 @@ module rec Shape : sig
 				(* THINK how to handle extern struct declarations when we
 				 * add support for inter-file analysis. Usually there are also
 				 * a number of function prototypes referring to these structs.
-				 * But that's OK, because such structs are never actually used. 
+				 * But that's OK, because such structs are never actually used.
 				 *
 				 * For now, just return a dummy struct.
 				 *)
@@ -840,6 +840,9 @@ end
 
 and Regions : sig
 	include Set.S with type elt := Region.t
+  module Map: BatMap.S
+    with type key := Region.t
+  type 'a m = 'a Map.t
 	val none : t
 	val (+) : t -> t -> t
 	val (-) : t -> t -> t
@@ -850,6 +853,8 @@ and Regions : sig
 	end
 	= struct
 		include Set.Make(Region)
+		module Map = Map.Make (Region)
+    type 'a m = 'a Map.t
 		let none = empty
 		let (+) = union
 		let (-) = diff
@@ -1247,9 +1252,9 @@ and Effects : sig
 	= struct
 
 	type mem_kind = Alloc | Free | Read | Write | Uninit | Call | Lock | Unlock
-	
+
 	let mem_kind_pp m = match m with
-		| Alloc 	-> "Alloc" 
+		| Alloc 	-> "Alloc"
 		| Free 		-> "Free"
 		| Read 		-> "Read"
 		| Write 	-> "Write"
