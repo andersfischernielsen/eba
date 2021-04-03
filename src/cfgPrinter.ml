@@ -65,6 +65,7 @@ module MakeT (Monitor: PrinterSpec) = struct
   type progress = {
     visited: config StepMap.t ;
     current: config ;
+    path   : unit -> PathTree.t
   }
 
   (* TODO: remove once debugging is over *)
@@ -211,14 +212,16 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
 
-  let apply_transitions (predecessors: config)
-    (efmap: Effects.e list Regions.m): config =
+  (** Execute all monitor automata in the configuration [current] by letting
+      them see all the effects in the map [effects].  Both structures are
+      indexed by regions, and the operation is point-wise. *)
+  let apply_transitions (current: config) (effects: Effects.e list Regions.m): config =
     let f _ (s: Monitor.state set option) (e: Effects.e list option): Monitor.state set option =
       Some (s
         |? Set.singleton Monitor.initial_state
         |> Set.map @@ flip Monitor.transition (e |? [])
       )
-    in Regions.Map.merge f predecessors efmap ;;
+    in Regions.Map.merge f current effects ;;
 
 
   (* TODO: remove *)
@@ -247,46 +250,36 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> Regions.Map.bindings
           |> List.map (uncurry print_rsmap1)
           |> concat
-        ) + words "rsmap end" + newline);;
+        ) + words "rsmap end" + newline) ;;
 
-  (** TODO: remove *)
-  let eq_step_ (step: PathTree.step) (visited: config StepMap.t): bool =
-    let cmp (s: PathTree.step) _ : bool =
-      step.kind = s.kind && step.effs = s.effs && step.sloc = s.sloc
-    in StepMap.exists cmp visited ;;
 
-  let conf_diff (proposal: config) (seen: config): config =
-    let f _ proposed seen =
-      match proposed,seen with
-      | None, None -> None
-      | Some _, None -> proposed
-      | None, Some _ -> None
+  let conf_diff (proposed: config) (seen: config): config =
+    let diff _ proposed seen =
+      match proposed, seen with
+      | _, None | None, _ -> proposed
       | Some p, Some s -> Some (Set.diff p s) in
-    Regions.Map.merge f proposal seen ;;
+    Regions.Map.merge diff proposed seen ;;
 
   (** Merge the old and new set of colors for a region by unioning them. Do this
       for any region that is mentioned in either new or the old map. *)
   let conf_union (proposal: config) (seen: config): config =
     Regions.Map.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
-  let visit (step: PathTree.step) (newly_explored: config)
+  let visit (step: PathTree.step) (to_visit: config)
     (visited: config StepMap.t): config StepMap.t =
-    StepMap.modify_def Regions.Map.empty step (conf_union newly_explored) visited ;;
+    StepMap.modify_def Regions.Map.empty step (conf_union to_visit) visited ;;
 
-  let find_config (step: PathTree.step) (visited: config StepMap.t)
-  : config =
-    visited |> StepMap.find_opt step |? Regions.Map.empty
-  ;;
 
   (** Explore a step of execution, a CFG edge, without inlining.  This function
       updates all the dictionary tracking data for printing. It only applies the
       step to monitors that have not been applied to this step. Otherwise the
       progress state is not changed.  *)
   let step_over (progress: progress) (step: PathTree.step): progress =
-    let seen = find_config step progress.visited in
-    let to_visit = conf_diff progress.current seen
-    in {
-      current = step.effs.may
+    let seen = progress.visited
+      |> StepMap.find_opt step
+      |? Regions.Map.empty in
+    let to_visit = conf_diff progress.current seen in
+    let successors = step.effs.may
         |> Effects.EffectSet.filter Monitor.is_in_transition_labels
         |> Effects.EffectSet.to_list
         |> List.filter_map get_region
@@ -294,48 +287,38 @@ module MakeT (Monitor: PrinterSpec) = struct
         |> List.map extract_regions
         |> Seq.of_list
         |> Regions.Map.of_seq
-        |> apply_transitions to_visit ;
-      visited = visit step to_visit progress.visited } ;;
+        |> apply_transitions to_visit in
+    let visited1 = visit step to_visit progress.visited
+    in { progress with current = successors ; visited = visited1 } ;;
 
 
-  (* TODO: not sure if the mutual recursion can be eliminated, the stack may be
-     needed.  Would it help? *)
-  let rec explore_paths (func: AFun.t) (inline_limit: int) (path: unit -> PathTree.t)
-    (progress: progress): progress =
-
-    match path () with
-
+  let rec explore_paths (func: AFun.t) (inline_limit: int) (progress: progress): progress =
+    match progress.path () with
     | Seq (step, remaining) ->
-      step |> step_into func inline_limit progress
-           |> explore_paths func inline_limit remaining
-
+      let progress1 = step_into func inline_limit progress step
+      in explore_paths func inline_limit { progress1 with path = remaining }
     | Assume (_, _, remaining) ->
-      explore_paths func inline_limit remaining progress
-
+      explore_paths func inline_limit { progress with path = remaining }
+    (* TODO: are states from different paths merged here correctly? *)
     | If (true_path, false_path) ->
-      let progress1 = explore_paths func inline_limit true_path progress
-      in explore_paths func inline_limit false_path progress1
-
+      let progress1 = explore_paths func inline_limit { progress with path = true_path }
+      in explore_paths func inline_limit { progress1 with path = false_path }
     | Nil -> progress
 
 
 
   (* TODO: worried that this wrongly consumes the inlining limit, even if there
      are no calls *)
-  and step_into (func: AFun.t) (inline_limit: int) (progress: progress)
-    (step: PathTree.step): progress =
-      if inline_limit > 0 then
-        Some step
-          |> Option.filter (PathTree.exists_in_stmt is_call)
-          |> Option.map (PathTree.inline func)
-          |> tap (assert_bool "inline failed!" % Option.is_none)
-          |> (flip Option.bind) identity
-          |> Option.map snd
-          |> Option.map (fun step -> explore_paths func (inline_limit - 1) step progress)
-          |> Option.default progress
-      else
-        step_over progress step ;;
-
+  and step_into (func: AFun.t) (inline_limit: int) (progress: progress) (step: PathTree.step): progress =
+    if inline_limit > 0 && PathTree.exists_in_stmt is_call step then
+      let inlined_path = PathTree.inline func step
+        |> tap (assert_bool "inline failed!" % Option.is_none)
+        |> Option.map snd
+        |? fun () -> PathTree.Nil
+      (* TODO should not we now use a new func object here, presumably in fst above? *)
+      in explore_paths func (inline_limit-1) { progress with path = inlined_path }
+    else
+      step_over progress step ;;
 
 
 
@@ -349,15 +332,16 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
-    let path_tree = PathTree.paths_of func in
-    let initial_progress = { visited = StepMap.empty ; current = Regions.Map.empty } in
-    let outcome = explore_paths func inline_limit path_tree initial_progress in
-
-      (* TODO: this might be failing when we have aliases *)
+    let initial = {
+      visited = StepMap.empty ;
+      current = Regions.Map.empty;
+      path = PathTree.paths_of func } in
+    let outcome = explore_paths func inline_limit initial
+    in (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
       format_steps decl_f.svar.vdecl.file  decl_f.svar.vname outcome.visited
-        |> SmartPrint.to_stdout 80 2;;
+        |> SmartPrint.to_stdout 80 2 ;;
 
 end
 
