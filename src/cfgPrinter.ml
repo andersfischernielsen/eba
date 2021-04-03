@@ -29,12 +29,18 @@ end
     colors (which should mean black). *)
 module MakeT (Monitor: PrinterSpec) = struct
 
+
+
+  (* Name several useful types to increase readability *)
+
+  type step = PathTree.step
+
   (** step.lenv seems to be not stable across several references to the same
       program point.  I am not entirely sure why. But this boolean equality
       test on steps seems to work (just ignoring step.lenv) for detecting
       whether we have seen a step. *)
   module StepMap = Map.Make (struct
-    type t = PathTree.step
+    type t = step
     let compare (s1: t) (s2: t): int =
       if s1.kind = s2.kind then
         if s1.effs = s2.effs then Pervasives.compare s1.sloc s2.sloc
@@ -42,19 +48,11 @@ module MakeT (Monitor: PrinterSpec) = struct
       else Pervasives.compare s1.kind s2.kind
   end)
 
-
-  let assert_bool = OUnit2.assert_bool;;
-
-
-  let is_call (instr: Cil.instr): bool =
-    match instr with
-    | Cil.(Call _) -> true
-    | ____________ -> false ;;
-
   (** maps a region number to a variable name and a type name/string *)
   type rvtmap = (int, name * name) BatMap.t
 
   type 'a set = 'a Set.t
+
   (* TODO: concerned that Regions.m might still ignore zonking *)
   type config = Monitor.state set Regions.m
 
@@ -64,6 +62,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     current: config ;
     path   : unit -> PathTree.t
   }
+
+
+  let assert_bool = OUnit2.assert_bool;;
+
+  let is_call (instr: Cil.instr): bool =
+    match instr with
+    | Cil.(Call _) -> true
+    | ____________ -> false ;;
 
   (* TODO: remove once debugging is over *)
   let step_kind_to_string (k: PathTree.step_kind): string =
@@ -99,7 +105,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     ) ;;
 
   (** Print a single output line *)
-  let format_step (step: PathTree.step) (colors: config): PP.doc =
+  let format_step (step: step) (colors: config): PP.doc =
     PP.(
       words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
       indent (
@@ -116,7 +122,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       )
     )
 
-  let cmp_loc (sc1: PathTree.step * config) (sc2: PathTree.step * config): int =
+  let cmp_loc (sc1: step * config) (sc2: step * config): int =
       let s1, s2 = fst sc1, fst sc2 in
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
@@ -244,7 +250,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     Regions.Map.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
 
-  let visit (step: PathTree.step) (to_visit: config)
+  let visit (step: step) (to_visit: config)
     (visited: config StepMap.t): config StepMap.t =
     StepMap.modify_def Regions.Map.empty step (conf_union to_visit) visited ;;
 
@@ -265,7 +271,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       updates all the dictionary tracking data for printing. It only applies the
       step to monitors that have not been applied to this step. Otherwise the
       progress state is not changed.  *)
-  let step_over (progress: progress) (step: PathTree.step): progress =
+  let step_over (progress: progress) (step: step): progress =
     let seen = progress.visited
       |> StepMap.find_opt step
       |? Regions.Map.empty in
@@ -297,7 +303,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Nil -> progress
 
 
-  and step_into (func: AFun.t) (inline_limit: int) (progress: progress) (step: PathTree.step): progress =
+  and step_into (func: AFun.t) (inline_limit: int) (progress: progress) (step: step): progress =
     if inline_limit > 0 && PathTree.exists_in_stmt is_call step then
       match PathTree.inline func step with
       | Some (funAbsm, inlined_path) ->
