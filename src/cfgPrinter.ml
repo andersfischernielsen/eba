@@ -29,8 +29,6 @@ end
     colors (which should mean black). *)
 module MakeT (Monitor: PrinterSpec) = struct
 
-  module Monitor = Monitor
-
   (** step.lenv seems to be not stable across several references to the same
       program point.  I am not entirely sure why. But this boolean equality
       test on steps seems to work (just ignoring step.lenv) for detecting
@@ -48,7 +46,6 @@ module MakeT (Monitor: PrinterSpec) = struct
   let assert_bool = OUnit2.assert_bool;;
 
 
-  (* TODO: likely belongs elsewhere. Util? Might not be needed, seems to be from BCR *)
   let is_call (instr: Cil.instr): bool =
     match instr with
     | Cil.(Call _) -> true
@@ -212,27 +209,7 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
 
-  (** Execute all monitor automata in the configuration [current] by letting
-      them see all the effects in the map [effects].  Both structures are
-      indexed by regions, and the operation is point-wise. *)
-  let apply_transitions (current: config) (effects: Effects.e list Regions.m): config =
-    let f _ (s: Monitor.state set option) (e: Effects.e list option): Monitor.state set option =
-      Some (s
-        |? Set.singleton Monitor.initial_state
-        |> Set.map @@ flip Monitor.transition (e |? [])
-      )
-    in Regions.Map.merge f current effects ;;
 
-
-  (* TODO: remove *)
-  let print_visited (visited: config StepMap.t): PP.doc =
-    PP.(words "configuration start" +
-        indent (
-          visited
-          |> StepMap.bindings
-          |> List.map (uncurry format_step)
-          |> concat
-         ) + newline + words "configuration end" + newline);;
 
   (* TODO: remove *)
   let print_rsmap1 (region: region) (states: Monitor.state set): PP.doc =
@@ -260,14 +237,28 @@ module MakeT (Monitor: PrinterSpec) = struct
       | Some p, Some s -> Some (Set.diff p s) in
     Regions.Map.merge diff proposed seen ;;
 
+
   (** Merge the old and new set of colors for a region by unioning them. Do this
       for any region that is mentioned in either new or the old map. *)
   let conf_union (proposal: config) (seen: config): config =
     Regions.Map.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
+
   let visit (step: PathTree.step) (to_visit: config)
     (visited: config StepMap.t): config StepMap.t =
     StepMap.modify_def Regions.Map.empty step (conf_union to_visit) visited ;;
+
+
+  (** Execute all monitor automata in the configuration [current] by letting
+      them see all the effects in the map [effects].  Both structures are
+      indexed by regions, and the operation is point-wise. *)
+  let apply_transitions (current: config) (effects: Effects.e list Regions.m): config =
+    let f _ (s: Monitor.state set option) (e: Effects.e list option): Monitor.state set option =
+      Some (s
+        |? Set.singleton Monitor.initial_state
+        |> Set.map @@ flip Monitor.transition (e |? [])
+      )
+    in Regions.Map.merge f current effects ;;
 
 
   (** Explore a step of execution, a CFG edge, without inlining.  This function
@@ -306,17 +297,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Nil -> progress
 
 
-
-  (* TODO: worried that this wrongly consumes the inlining limit, even if there
-     are no calls *)
   and step_into (func: AFun.t) (inline_limit: int) (progress: progress) (step: PathTree.step): progress =
     if inline_limit > 0 && PathTree.exists_in_stmt is_call step then
-      let inlined_path = PathTree.inline func step
-        |> tap (assert_bool "inline failed!" % Option.is_none)
-        |> Option.map snd
-        |? fun () -> PathTree.Nil
-      (* TODO should not we now use a new func object here, presumably in fst above? *)
-      in explore_paths func (inline_limit-1) { progress with path = inlined_path }
+      match PathTree.inline func step with
+      | Some (funAbsm, inlined_path) ->
+          (* TODO should not we now use a new func object here, presumably in fst above? *)
+          explore_paths func (inline_limit-1) { progress with path = inlined_path }
+      | None ->
+          step_over progress step
     else
       step_over progress step ;;
 
@@ -326,22 +314,29 @@ module MakeT (Monitor: PrinterSpec) = struct
       [file] and prints the coloring for the lines traversed (according to a
       lock monitor). *)
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
-    let func = AFile.find_fun file decl_f.svar |> Option.get |> snd in
-    let global = AFile.global_variables_and_regions file |> Map.to_seq in
-    let local = decl_f.sformals @ decl_f.slocals |> Seq.of_list
+    let func = AFile.find_fun file decl_f.svar
+      |> Option.get
+      |> snd in
+    let global = AFile.global_variables_and_regions file
+      |> Map.to_seq in
+    let local = decl_f.sformals @ decl_f.slocals
+      |> Seq.of_list
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
-    let rvtseq = Seq.append local global |> Seq.map (uncurry rvt_mk) |> Seq.flatten in
+    let rvtseq = Seq.append local global
+      |> Seq.map (uncurry rvt_mk)
+      |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let initial = {
       visited = StepMap.empty ;
       current = Regions.Map.empty;
       path = PathTree.paths_of func } in
-    let outcome = explore_paths func inline_limit initial
+    let outcome = explore_paths func inline_limit initial in
+    let printout =
+      format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.visited
     in (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      format_steps decl_f.svar.vdecl.file  decl_f.svar.vname outcome.visited
-        |> SmartPrint.to_stdout 80 2 ;;
+      SmartPrint.to_stdout 80 2 printout ;;
 
 end
 
