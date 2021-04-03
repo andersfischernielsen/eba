@@ -215,8 +215,6 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
 
-
-
   (* TODO: remove *)
   let print_rsmap1 (region: region) (states: Monitor.state set): PP.doc =
     PP.(Region.pp region ++ !^ "->" ++
@@ -340,7 +338,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     let printout =
       format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.visited
     in (* TODO: this might be failing when we have aliases *)
-      assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);
+      (*assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);*)
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
       SmartPrint.to_stdout 80 2 printout ;;
 
