@@ -3,6 +3,7 @@ open Batteries
 open Type
 open Abs
 open BatTuple.Tuple2
+open Option.Infix
 
 
 module type PrinterSpec = sig
@@ -302,15 +303,14 @@ module MakeT (Monitor: PrinterSpec) = struct
 
 
   and step_into (func: AFun.t) (inline_limit: int) (progress: progress) (step: step): progress =
-    if inline_limit > 0 && PathTree.exists_in_stmt is_call step then
-      match PathTree.inline func step with
-      | Some (funAbsm, inlined_path) ->
-          (* TODO should not we now use a new func object here, presumably in fst above? *)
-          explore_paths func (inline_limit-1) { progress with path = inlined_path }
-      | None ->
-          step_over progress step
-    else
-      step_over progress step ;;
+    Some(step)
+      |>  Option.filter (fun _ -> inline_limit > 0)
+      |>  Option.filter (PathTree.exists_in_stmt is_call)
+      >>= PathTree.inline func
+      |>  Option.map (fun fp -> explore_paths func (inline_limit-1) { progress with path = snd fp } )
+      |? step_over progress step ;;
+
+      (* TODO should not we now use a new func object here, presumably in fst above? *)
 
 
 
