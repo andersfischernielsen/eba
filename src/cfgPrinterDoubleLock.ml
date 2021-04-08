@@ -12,10 +12,12 @@ open Effects
 module SpecT = struct
 
   type state =
+    | Red         (* The monitor sees a lock statement/effect *)
+    | Green       (* The monitor sees an unlock statement/effect *)
+    | RedGreen    (* The monitor sees both lock and unlock effects *)
     | Orange      (* The monitor is in a critical section *)
     | Black       (* The monitor is outside critical sections *)
     | BlackOrange (* Either inside or outside; either possible *)
-    | Confused    (* Seen a bug, double lock/unlock, trying to recover *)
 
   let initial_state = Black
   let transition_labels = [Lock; Unlock]
@@ -40,25 +42,15 @@ module SpecT = struct
   let transition current (effect: Effects.e list): state =
     match current, locks effect, unlocks effect with
 
-    | Black, false, true -> Confused
-    | Black, true, false -> Orange
-    | Black, false, false -> Black
-    | Black, true, true -> BlackOrange
+    | ________, true,  false -> Red
+    | ________, false, true  -> Green
+    | ________, true,  true  -> RedGreen
+    | Red,      false, false -> Orange
+    | Green,    false, false -> Black
+    | RedGreen, false, false -> BlackOrange
+    | pred,     false, false -> pred
 
-    | Orange, false, true -> Black
-    | Orange, true, false -> Confused
-    | Orange, false, false -> Orange
-    | Orange, true, true -> Black
-
-    | Confused, true, false -> Orange
-    | Confused, false, true -> Black
-    | Confused, true, true -> Orange
-    | Confused, false, false -> Black
-
-    | BlackOrange, true, true -> BlackOrange
-    | BlackOrange, false, false -> BlackOrange
-    | BlackOrange, true, false -> Orange       (* ??? *)
-    | BlackOrange, false, true -> Black ;;     (* ??? *)
+  ;;     (* ??? *)
 
 
   (* ignored in cfg printer *)
@@ -72,7 +64,9 @@ module SpecT = struct
     | Orange 	   -> "orange"
     | Black 	   -> "black"
     | BlackOrange  -> "black|orange"
-    | Confused     -> "confused" (* should never happen *)
+    | Red 	   -> "red"
+    | Green 	   -> "green"
+    | RedGreen     -> "red|green"
 
 end
 
