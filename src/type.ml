@@ -840,9 +840,6 @@ end
 
 and Regions : sig
 	include Set.S with type elt := Region.t
-  module Map: BatMap.S
-    with type key := Region.t
-  type 'a m = 'a Map.t
 	val none : t
 	val (+) : t -> t -> t
 	val (-) : t -> t -> t
@@ -853,8 +850,6 @@ and Regions : sig
 	end
 	= struct
 		include Set.Make(Region)
-		module Map = Map.Make (Region)
-    type 'a m = 'a Map.t
 		let none = empty
 		let (+) = union
 		let (-) = diff
