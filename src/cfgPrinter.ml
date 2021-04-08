@@ -41,12 +41,43 @@ module MakeT (Monitor: PrinterSpec) = struct
       test on steps seems to work (just ignoring step.lenv) for detecting
       whether we have seen a step. *)
   module StepMap = Map.Make (struct
+
+    type step = PathTree.step
+    type step_kind = PathTree.step_kind
     type t = step
-    let compare (s1: t) (s2: t): int =
-      if s1.kind = s2.kind then
-        if s1.effs = s2.effs then Pervasives.compare s1.sloc s2.sloc
+
+    let compare_step_kind (k1: step_kind) (k2: step_kind): int =
+      match k1, k2 with
+      | Stmt il1, Stmt il2 ->
+          Pervasives.compare il1 il2
+          (* The above seems to be a gamble as instr can embed expressions, and
+             for some reason, Iago has built his own comparator of expressions.
+             If out of memory errors reappear in map, then perhaps we need to
+             refine this to use CilExtra.compareExp. *)
+      | Test (tk1,e1), Test (tk2,e2) ->
+          if tk1 = tk2
+          then CilExtra.compareExp e1 e2
+          else Pervasives.compare tk1 tk2
+      | Goto (la1,lo1), Goto (la2, lo2) ->
+          if la1 = la2
+          then Cil.compareLoc lo1 lo2
+          else Pervasives.compare la1 la2
+      | Ret eo1, Ret eo2 ->
+          Option.compare ~cmp:CilExtra.compareExp eo1 eo2
+      | Stmt _, _ -> -1
+      | _, Stmt _ -> +1
+      | Test _, _ -> -1
+      | _, Test _ -> +1
+      | Goto _, _ -> -1
+      | _________ -> +1
+
+    let compare (s1: step) (s2: step): int =
+      match compare_step_kind s1.kind s2.kind with
+      | 0 ->
+        if s1.effs = s2.effs
+        then Cil.compareLoc s1.sloc s2.sloc
         else Pervasives.compare s1.effs s2.effs
-      else Pervasives.compare s1.kind s2.kind
+      | result -> result
   end)
 
   module RegionMap = Map.Make (Region)
