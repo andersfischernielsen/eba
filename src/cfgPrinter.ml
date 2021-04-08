@@ -333,6 +333,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       [file] and prints the coloring for the lines traversed (according to a
       lock monitor). *)
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
+    let _ = Printexc.record_backtrace true in
     let func = AFile.find_fun file decl_f.svar
       |> Option.get
       |> snd in
@@ -347,9 +348,9 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtmap = Map.of_seq rvtseq in
     let initial = {
       visited = StepMap.empty ;
-      current = Regions.Map.empty;
+      current = RegionMap.empty;
       path = PathTree.paths_of func } in
-    let outcome = explore_paths func inline_limit initial in
+    let outcome = Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
     let printout =
       format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.visited
     in (* TODO: this might be failing when we have aliases *)
