@@ -200,7 +200,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       words "- func:" ++ !^ func + newline +
       indent (
         !^ "file:" ++ !^ file + newline +
-        !^ "lines:" + newline
+        !^ "lines:"
       )
    )
 
@@ -213,9 +213,8 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> brackets
     )
     in PP.(
-      !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
-      if Set.is_empty colors then empty
-      else color_docs + newline
+      newline + !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
+      (if Set.is_empty colors then empty else color_docs)
     ) ;;
 
   (** Format the effects of the step/line *)
@@ -241,19 +240,20 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** Print a single output line *)
   let format_step (step: step) (colors: config): PP.doc =
     PP.(
-      words "- line:" ++ int step.sloc.line (*++ !^ (step_kind_to_string step.kind)*) + newline +
+      newline + words "- line:" ++ int step.sloc.line + newline +
       indent (
-        !^ "source:" ++ PathTree.pp_step step + newline +
+        words "source: |-" + newline +
+        indent (PathTree.pp_step step) +
         (if RegionMap.is_empty colors then empty
-        else !^ "colors:" + newline + (
+        else newline + !^ "colors:" + (
           colors
           |> RegionMap.bindings
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))
           |> List.map (uncurry format_colors)
           |> concat
         )) +
-        words "effects:" ++ format_effects step.effs.may + newline +
-        words "regions:" ++ format_regions step.effs.may + newline
+        newline + words "effects:" ++ format_effects step.effs.may +
+        newline + words "regions:" ++ format_regions step.effs.may
       )
     )
 
@@ -270,6 +270,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> concat
       |> indent
       |> append (format_prefix file func)
+      |> flip append @@ newline
     ) ;;
 
 
@@ -320,10 +321,18 @@ module MakeT (Monitor: PrinterSpec) = struct
     : config =
     let f _ (s: Monitor.state set option) (e: Effects.e list option)
       : Monitor.state set option =
-      Some (s
-        |? Set.singleton Monitor.initial_state
-        |> Set.map @@ flip Monitor.transition (e |? [])
-      )
+      match s, e with
+      | Some states, Some effects ->
+        Some (Set.map (flip Monitor.transition effects) states)
+      | Some states, None ->
+        Some (Set.map (flip Monitor.transition []) states)
+      | None, Some effects ->
+        if List.exists Monitor.is_in_transition_labels effects
+        then Some (Set.singleton
+          @@ Monitor.transition Monitor.initial_state effects)
+        else None
+      | _ -> None (* shouldn't happen *)
+
     in RegionMap.merge f current effects ;;
 
 
@@ -369,9 +378,9 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Assume (_, _, remaining) ->
       explore_paths func inline_limit { progress with path = remaining }
 
-    (* TODO: are states from different paths merged here correctly? *)
     | If (true_path, false_path) ->
-      let progress1 = explore_paths func inline_limit { progress with path = true_path }
+      let progress1 =
+        explore_paths func inline_limit { progress with path = true_path }
       in explore_paths func inline_limit { progress1 with path = false_path }
 
     | Nil -> progress
@@ -409,7 +418,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     in (* TODO: this might be failing when we have aliases *)
       (*assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);*)
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
-      SmartPrint.to_stdout 80 2 printout ;;
+      SmartPrint.to_stdout 10000 2 printout ;;
 
 end
 
