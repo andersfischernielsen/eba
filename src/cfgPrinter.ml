@@ -135,9 +135,9 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> brackets
     )
     in PP.(
-      words "- region:" ++ double_quotes (Region.pp region) + newline +
+      !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
       if Set.is_empty colors then empty
-      else !^ "colors:" ++ color_docs + newline |> indent
+      else color_docs + newline
     ) ;;
 
   (** Print a single output line *)
@@ -153,7 +153,6 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))
           |> List.map (uncurry format_colors)
           |> concat
-          |> indent
         )
       )
     )
