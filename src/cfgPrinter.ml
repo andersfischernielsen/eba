@@ -39,7 +39,8 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** step.lenv seems to be not stable across several references to the same
       program point.  I am not entirely sure why. But this boolean equality
       test on steps seems to work (just ignoring step.lenv) for detecting
-      whether we have seen a step. *)
+      whether we have seen a step. It might be that elsewhere in EBA this is
+      already implemented but I was not able to find it -- TODO *)
   module StepMap = Map.Make (struct
 
     type step = PathTree.step
@@ -74,9 +75,10 @@ module MakeT (Monitor: PrinterSpec) = struct
     let compare (s1: step) (s2: step): int =
       match compare_step_kind s1.kind s2.kind with
       | 0 ->
-        if s1.effs = s2.effs
-        then Cil.compareLoc s1.sloc s2.sloc
-        else Pervasives.compare s1.effs s2.effs
+          let cmp_effects = Effects.compare s1.effs s2.effs
+          in if cmp_effects = 0
+          then Cil.compareLoc s1.sloc s2.sloc
+          else cmp_effects
       | result -> result
   end)
 
