@@ -109,75 +109,10 @@ module MakeT (Monitor: PrinterSpec) = struct
     | Cil.(Call _) -> true
     | ____________ -> false ;;
 
-  (* TODO: remove once debugging is over *)
-  let step_kind_to_string (k: PathTree.step_kind): string =
-    match k with
-    | Stmt _ -> "Stmt"
-    | Test _ -> "Test"
-    | Goto _ -> "Goto"
-    | Ret _  -> "Ret" ;;
-
-
-  (** Format the file info and the prefix *)
-  let format_prefix (file: string) (func: string) : PP.doc =
-    PP.(
-      words "- func:" ++ !^ func + newline +
-      indent (
-        !^ "file:" ++ !^ file + newline +
-        !^ "lines:" + newline
-      )
-   )
-
-  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
-    let color_docs = PP.(colors
-      |> Set.to_list
-      |> List.map (Monitor.string_of_state)
-      |> List.map (!^)
-      |> comma_sep
-      |> brackets
-    )
-    in PP.(
-      !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
-      if Set.is_empty colors then empty
-      else color_docs + newline
-    ) ;;
-
-  (** Print a single output line *)
-  let format_step (step: step) (colors: config): PP.doc =
-    PP.(
-      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
-      indent (
-        !^ "source:" ++ PathTree.pp_step step + newline +
-        if RegionMap.is_empty colors then empty
-        else !^ "coloring:" + newline + (
-          colors
-          |> RegionMap.bindings
-          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
-          |> List.map (uncurry format_colors)
-          |> concat
-        )
-      )
-    )
-
-  let cmp_loc (sc1: step * config) (sc2: step * config): int =
-      let s1, s2 = fst sc1, fst sc2 in
-      Pervasives.compare s1.sloc.line s2.sloc.line ;;
-
-  (** Print all lines in the provided map *)
-  let format_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
-    PP.(colors
-      |> StepMap.bindings
-      |> List.stable_sort cmp_loc
-      |> List.map (uncurry format_step)
-      |> concat
-      |> indent
-      |> append (format_prefix file func)
-    ) ;;
-
 
   (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
-  let get_region e =
+  let get_region (e: Effects.e): (Region.t * Effects.e) option =
     match e with
     | Effects.Mem (_, region) -> Some (region, e)
     | _______________________ -> None ;;
@@ -250,6 +185,92 @@ module MakeT (Monitor: PrinterSpec) = struct
       Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
 
+  (* TODO: remove once debugging is over *)
+  let step_kind_to_string (k: PathTree.step_kind): string =
+    match k with
+    | Stmt _ -> "Stmt"
+    | Test _ -> "Test"
+    | Goto _ -> "Goto"
+    | Ret _  -> "Ret" ;;
+
+
+  (** Format the file info and the prefix *)
+  let format_prefix (file: string) (func: string) : PP.doc =
+    PP.(
+      words "- func:" ++ !^ func + newline +
+      indent (
+        !^ "file:" ++ !^ file + newline +
+        !^ "lines:" + newline
+      )
+   )
+
+  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
+    let color_docs = PP.(colors
+      |> Set.to_list
+      |> List.map (Monitor.string_of_state)
+      |> List.map (!^)
+      |> comma_sep
+      |> brackets
+    )
+    in PP.(
+      !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
+      if Set.is_empty colors then empty
+      else color_docs + newline
+    ) ;;
+
+  (** Format the effects of the step/line *)
+  let format_effects (effects : Effects.EffectSet.t) : PP.doc =
+    PP.(effects
+    |> Effects.EffectSet.to_list
+    |> List.map Effects.pp_e
+    |> List.map PP.double_quotes
+    |> comma_sep
+    |> brackets ) ;;
+
+  (** Format regions accessed in the step/line *)
+  let format_regions (effects: Effects.EffectSet.t) : PP.doc =
+    PP.(effects
+    |> Effects.EffectSet.to_list
+    |> List.filter_map get_region
+    |> List.map fst
+    |> List.map Region.pp
+    |> List.map PP.double_quotes
+    |> comma_sep
+    |> brackets) ;;
+
+  (** Print a single output line *)
+  let format_step (step: step) (colors: config): PP.doc =
+    PP.(
+      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
+      indent (
+        !^ "source:" ++ PathTree.pp_step step + newline +
+        (if RegionMap.is_empty colors then empty
+        else !^ "colors:" + newline + (
+          colors
+          |> RegionMap.bindings
+          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
+          |> List.map (uncurry format_colors)
+          |> concat
+        )) +
+        words "effects:" ++ format_effects step.effs.may + newline +
+        words "regions:" ++ format_regions step.effs.may + newline
+      )
+    )
+
+  let cmp_loc (sc1: step * config) (sc2: step * config): int =
+      let s1, s2 = fst sc1, fst sc2 in
+      Pervasives.compare s1.sloc.line s2.sloc.line ;;
+
+  (** Print all lines in the provided map *)
+  let format_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
+    PP.(colors
+      |> StepMap.bindings
+      |> List.stable_sort cmp_loc
+      |> List.map (uncurry format_step)
+      |> concat
+      |> indent
+      |> append (format_prefix file func)
+    ) ;;
 
 
   (* TODO: remove *)
