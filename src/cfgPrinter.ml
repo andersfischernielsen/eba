@@ -93,7 +93,8 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
   type progress = {
-    visited: config StepMap.t ;
+    visited: config StepMap.t ; (* states of pertinent monitors before the step *)
+    colors : config StepMap.t ; (* states of pertinent monitors after the step *)
     current: config ;
     path   : unit -> PathTree.t
   }
@@ -290,9 +291,13 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   (** Execute all monitor automata in the configuration [current] by letting
       them see all the effects in the map [effects].  Both structures are
-      indexed by regions, and the operation is point-wise. *)
-  let apply_transitions (current: config) (effects: Effects.e list region_map): config =
-    let f _ (s: Monitor.state set option) (e: Effects.e list option): Monitor.state set option =
+      indexed by regions, and the operation is point-wise. Produces a successor
+      configuration for a step (which is the coloring used in the next step!).
+   *)
+  let apply_transitions (current: config) (effects: Effects.e list region_map)
+    : config =
+    let f _ (s: Monitor.state set option) (e: Effects.e list option)
+      : Monitor.state set option =
       Some (s
         |? Set.singleton Monitor.initial_state
         |> Set.map @@ flip Monitor.transition (e |? [])
@@ -305,10 +310,10 @@ module MakeT (Monitor: PrinterSpec) = struct
       step to monitors that have not been applied to this step. Otherwise the
       progress state is not changed.  *)
   let step_over (progress: progress) (step: step): progress =
-    let seen = progress.visited
+    let monitors_to_update = progress.visited
       |> StepMap.find_opt step
-      |? RegionMap.empty in
-    let to_visit = conf_diff progress.current seen in
+      |? RegionMap.empty
+      |> conf_diff progress.current in
     let successors = step.effs.may
       |> Effects.EffectSet.filter Monitor.is_in_transition_labels
       |> Effects.EffectSet.to_list
@@ -317,33 +322,26 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> List.map extract_regions
       |> Seq.of_list
       |> RegionMap.of_seq
-      |> apply_transitions to_visit in
-    let visited1 = visit step to_visit progress.visited
-    in { progress with current = successors ; visited = visited1 } ;;
+      |> apply_transitions monitors_to_update
+    in {
+      current = successors ;
+      colors = visit step successors progress.colors ;
+      visited = visit step monitors_to_update progress.visited ;
+      path = progress.path
+    } ;;
 
 
-  (* TODO: remove *)
-  let rec format_path (path: unit -> PathTree.t): PP.doc =
-    match path () with
-    | Seq (step, _) ->
-      PP.(!^ "Seq" ++ format_step step RegionMap.empty)
-    | Assume (_, _,_) ->  PP.(!^ "Assume" + newline)
-    | If (t,f) -> PP.(format_path t + newline + format_path f +newline)
-    | Nil -> PP.(!^ "Nil" + newline)
-  ;;
-
-  let rec explore_paths (func: AFun.t) (inline_limit: int) (progress: progress): progress =
-    (*PP.(!^ "#" ++ format_path progress.path |> to_stdout);*)
-    (*flush IO.stdout;*)
+  let rec explore_paths (func: AFun.t) (inline_limit: int) (progress: progress)
+    : progress =
     match progress.path () with
     | Seq (step, remaining) ->
       let progress1 = Some step
         |>  Option.filter (fun _ -> inline_limit > 0)
         |>  Option.filter (PathTree.exists_in_stmt is_call)
         >>= PathTree.inline func
-        |>  Option.map (fun fp -> explore_paths func (inline_limit - 1) { progress with path = snd fp })
+        |>  Option.map (fun fp -> explore_paths func (inline_limit - 1)
+             { progress with path = snd fp })
         |?  step_over progress step
-        (* TODO should not we now use a new func object here, presumably in fst above? *)
       in explore_paths func inline_limit { progress1 with path = remaining }
 
     | Assume (_, _, remaining) ->
@@ -379,11 +377,13 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtmap = Map.of_seq rvtseq in
     let initial = {
       visited = StepMap.empty ;
+      colors  = StepMap.empty ;
       current = RegionMap.empty;
-      path = PathTree.paths_of func } in
-    let outcome = Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
+      path    = PathTree.paths_of func } in
+    let outcome =
+      Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
     let printout =
-      format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.visited
+      format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.colors
     in (* TODO: this might be failing when we have aliases *)
       (*assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);*)
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
