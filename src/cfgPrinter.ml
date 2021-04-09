@@ -241,7 +241,7 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** Print a single output line *)
   let format_step (step: step) (colors: config): PP.doc =
     PP.(
-      words "- line:" ++ int step.sloc.line ++ !^ (step_kind_to_string step.kind) + newline +
+      words "- line:" ++ int step.sloc.line (*++ !^ (step_kind_to_string step.kind)*) + newline +
       indent (
         !^ "source:" ++ PathTree.pp_step step + newline +
         (if RegionMap.is_empty colors then empty
