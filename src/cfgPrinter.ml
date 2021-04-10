@@ -95,7 +95,6 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   (* TODO: temporary type to have one place of definition, definitely still messy *)
   type progress = {
-    visited: config StepMap.t ; (* states of pertinent monitors before the step *)
     colors : config StepMap.t ; (* states of pertinent monitors after the step *)
     current: config ;
     path   : unit -> PathTree.t
@@ -283,7 +282,7 @@ module MakeT (Monitor: PrinterSpec) = struct
         |> comma_sep) +  newline);;
 
   (* TODO: remove *)
-  let print_rsmap (rsmap: config): PP.doc =
+  let format_config (rsmap: config): PP.doc =
     PP.(words "rsmap start" + newline +
         indent (
           rsmap
@@ -307,9 +306,9 @@ module MakeT (Monitor: PrinterSpec) = struct
     RegionMap.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
 
-  let visit (step: step) (to_visit: config)
+  let add_colors (step: step) (to_visit: config)
     (visited: config StepMap.t): config StepMap.t =
-    StepMap.modify_def RegionMap.empty step (conf_union to_visit) visited ;;
+    StepMap.modify_def RegionMap.empty step (conf_union to_visit) visited
 
 
   (** Execute all monitor automata in the configuration [current] by letting
@@ -317,7 +316,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       indexed by regions, and the operation is point-wise. Produces a successor
       configuration for a step (which is the coloring used in the next step!).
    *)
-  let apply_transitions (current: config) (effects: Effects.e list region_map)
+  let fire_transitions (current: config) (effects: Effects.e list region_map)
     : config =
     let f _ (s: Monitor.state set option) (e: Effects.e list option)
       : Monitor.state set option =
@@ -332,7 +331,6 @@ module MakeT (Monitor: PrinterSpec) = struct
           @@ Monitor.transition Monitor.initial_state effects)
         else None
       | _ -> None (* shouldn't happen *)
-
     in RegionMap.merge f current effects ;;
 
 
@@ -341,10 +339,6 @@ module MakeT (Monitor: PrinterSpec) = struct
       step to monitors that have not been applied to this step. Otherwise the
       progress state is not changed.  *)
   let step_over (progress: progress) (step: step): progress =
-    let monitors_to_update = progress.visited
-      |> StepMap.find_opt step
-      |? RegionMap.empty
-      |> conf_diff progress.current in
     let successors = step.effs.may
       |> Effects.EffectSet.filter Monitor.is_in_transition_labels
       |> Effects.EffectSet.to_list
@@ -353,15 +347,16 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> List.map extract_regions
       |> Seq.of_list
       |> RegionMap.of_seq
-      |> apply_transitions monitors_to_update
+      |> fire_transitions progress.current
     in {
       current = successors ;
-      colors = visit step successors progress.colors ;
-      visited = visit step monitors_to_update progress.visited ;
+      colors = add_colors step successors progress.colors ;
       path = progress.path
     } ;;
 
 
+  (** Explore all reachable paths from the current state of exploration,
+      captured by [progress]. *)
   let rec explore_paths (func: AFun.t) (inline_limit: int) (progress: progress)
     : progress =
     match progress.path () with
@@ -407,7 +402,6 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> Seq.flatten in
     let rvtmap = Map.of_seq rvtseq in
     let initial = {
-      visited = StepMap.empty ;
       colors  = StepMap.empty ;
       current = RegionMap.empty;
       path    = PathTree.paths_of func } in

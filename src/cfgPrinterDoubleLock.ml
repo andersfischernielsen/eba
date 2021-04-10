@@ -50,14 +50,14 @@ module SpecT = struct
     | RedGreen, false, false -> BlackOrange
     | pred,     false, false -> pred
 
-  ;;     (* ??? *)
+  ;;
 
 
   (* ignored in cfg printer *)
   let is_in_interesting_section _ : bool = true
 
   (* ignored in cfg printer *)
-  let is_in_final_state _ : bool = true
+  let is_in_final_state _ : bool = false
 
   let string_of_state state =
     match state with
