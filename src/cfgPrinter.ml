@@ -279,18 +279,26 @@ module MakeT (Monitor: PrinterSpec) = struct
         brackets (states
         |> Set.to_list
         |> List.map (fun s -> !^ (Monitor.string_of_state s))
-        |> comma_sep) +  newline);;
+        |> comma_sep) );;
 
   (* TODO: remove *)
   let format_config (rsmap: config): PP.doc =
-    PP.(words "rsmap start" + newline +
-        indent (
-          rsmap
-          |> RegionMap.bindings
+    PP.( rsmap
+        |> RegionMap.bindings
           |> List.map (uncurry print_rsmap1)
-          |> concat
-        ) + words "rsmap end" + newline) ;;
+          |> space_sep
+          ) ;;
 
+  (* TODO: remove? *)
+  let pp_printer_state (step: step) (progress: progress) successors colors_post: PP.doc =
+    PP.(
+      !^ "****** l" + int step.sloc.line + !^ ": "
+      + PathTree.pp_step step + newline
+      + !^ "- current:" + format_config progress.current + newline
+      + !^ "- successors:" + format_config successors + newline
+      + !^ "- colors pre:" + format_config (StepMap.find_opt step progress.colors |? RegionMap.empty) + newline
+      + !^ "- colors post:" + format_config (StepMap.find_opt step colors_post |? RegionMap.empty) + newline
+    ) ;;
 
   let conf_diff (proposed: config) (seen: config): config =
     let diff _ proposed seen =
@@ -347,10 +355,13 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> List.map extract_regions
       |> Seq.of_list
       |> RegionMap.of_seq
-      |> fire_transitions progress.current
-    in {
+      |> fire_transitions progress.current in
+    let colors1 = add_colors step successors progress.colors in
+    (*let _ = pp_printer_state step progress successors colors1 |> PP.to_stdout in*)
+    (*let _ = BatIO.flush_all () in *)
+    {
       current = successors ;
-      colors = add_colors step successors progress.colors ;
+      colors = colors1;
       path = progress.path
     } ;;
 
@@ -376,7 +387,8 @@ module MakeT (Monitor: PrinterSpec) = struct
     | If (true_path, false_path) ->
       let progress1 =
         explore_paths func inline_limit { progress with path = true_path }
-      in explore_paths func inline_limit { progress1 with path = false_path }
+      in explore_paths func inline_limit {
+        progress with colors = progress1.colors; path = false_path }
 
     | Nil -> progress
   ;;
@@ -389,6 +401,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       lock monitor). *)
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
     let _ = Printexc.record_backtrace true in
+    (* TODO: a lot of the code below is not used right now. Revised when done *)
     let func = AFile.find_fun file decl_f.svar
       |> Option.get
       |> snd in
