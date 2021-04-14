@@ -217,7 +217,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     ) ;;
 
   (** Format the effects of the step/line *)
-  let format_effects (effects : Effects.EffectSet.t) : PP.doc =
+  let pp_effects_regions (effects: Effects.EffectSet.t): PP.doc =
     PP.(effects
     |> Effects.EffectSet.to_list
     |> List.map Effects.pp_e
@@ -225,8 +225,27 @@ module MakeT (Monitor: PrinterSpec) = struct
     |> comma_sep
     |> brackets ) ;;
 
+  let pp_effect_name = function
+    | Effects.Mem(k,r) -> PP.(Effects.pp_kind k)
+    | Effects.Noret    -> PP.(!^ "noret")
+    | Effects.IrqsOn   -> PP.(!^ "irqson")
+    | Effects.IrqsOff  -> PP.(!^ "irqsoff")
+    | Effects.BhsOn    -> PP.(!^ "bhson")
+    | Effects.BhsOff   -> PP.(!^ "bhsoff")
+    | Effects.Sleep    -> PP.(!^ "sleep")
+    | _    -> PP.empty
+
+  (** Format the effects of the step/line *)
+  let pp_effects (effects: Effects.EffectSet.t): PP.doc =
+    PP.(effects
+    |> Effects.EffectSet.to_list
+    |> List.map pp_effect_name
+    |> List.map PP.double_quotes
+    |> comma_sep
+    |> brackets ) ;;
+
   (** Format regions accessed in the step/line *)
-  let format_regions (effects: Effects.EffectSet.t) : PP.doc =
+  let pp_regions (effects: Effects.EffectSet.t): PP.doc =
     PP.(effects
     |> Effects.EffectSet.to_list
     |> List.filter_map get_region
@@ -251,8 +270,9 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> List.map (uncurry format_colors)
           |> concat
         )) +
-        newline + words "effects:" ++ format_effects step.effs.may +
-        newline + words "regions:" ++ format_regions step.effs.may
+        newline + words "effects:" ++ pp_effects_regions step.effs.may +
+        newline + words "effects_names:" ++ pp_effects step.effs.may +
+        newline + words "regions:" ++ pp_regions step.effs.may
       )
     )
 
