@@ -28,35 +28,28 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   type step = PathTree.step
 
-  (** step.lenv seems to be not stable across several references to the same
-      program point.  I am not entirely sure why. But this boolean equality
-      test on steps seems to work (just ignoring step.lenv) for detecting
-      whether we have seen a step. It might be that elsewhere in EBA this is
-      already implemented but I was not able to find it -- TODO *)
+  (** step.lenv seems not referentially transparent.  This equality test on
+      steps seems to work (ignoring step.lenv) *)
   module StepMap = Map.Make (struct
 
-    type step = PathTree.step
-    type step_kind = PathTree.step_kind
-    type t = step
+    type t = PathTree.step
 
-    let compare_step_kind (k1: step_kind) (k2: step_kind): int =
+    let compare_kind (k1: PathTree.step_kind) (k2: PathTree.step_kind): int =
       match k1, k2 with
       | Stmt il1, Stmt il2 ->
           Pervasives.compare il1 il2
-          (* The above seems to be a gamble as instr can embed expressions, and
-             for some reason, Iago has built his own comparator of expressions.
-             If out of memory errors reappear in map, then perhaps we need to
-             refine this to use CilExtra.compareExp. *)
+          (* a gamble: instr can embed expressions, and elsewhere there is a
+             custom comparator of expressions.  If out of memory errors reappear
+             in map, then consider refining  this to use CilExtra.compareExp. *)
+      | Test (tk1,e1), Test (tk2,e2) when tk1 = tk2 ->
+          CilExtra.compareExp e1 e2
       | Test (tk1,e1), Test (tk2,e2) ->
-          if tk1 = tk2
-          then CilExtra.compareExp e1 e2
-          else Pervasives.compare tk1 tk2
+          Pervasives.compare tk1 tk2
+      | Goto (la1,lo1), Goto (la2, lo2) when la1 = la2 ->
+          Cil.compareLoc lo1 lo2
       | Goto (la1,lo1), Goto (la2, lo2) ->
-          if la1 = la2
-          then Cil.compareLoc lo1 lo2
-          else Pervasives.compare la1 la2
-      | Ret eo1, Ret eo2 ->
-          Option.compare ~cmp:CilExtra.compareExp eo1 eo2
+          Pervasives.compare la1 la2
+      | Ret eo1, Ret eo2 -> Option.compare ~cmp:CilExtra.compareExp eo1 eo2
       | Stmt _, _ -> -1
       | _, Stmt _ -> +1
       | Test _, _ -> -1
@@ -65,13 +58,11 @@ module MakeT (Monitor: PrinterSpec) = struct
       | _________ -> +1
 
     let compare (s1: step) (s2: step): int =
-      match compare_step_kind s1.kind s2.kind with
-      | 0 ->
-          let cmp_effects = Effects.compare s1.effs s2.effs
-          in if cmp_effects = 0
-          then Cil.compareLoc s1.sloc s2.sloc
-          else cmp_effects
-      | result -> result
+      match compare_kind s1.kind s2.kind, Effects.compare s1.effs s2.effs with
+      | 0, 0 -> Cil.compareLoc s1.sloc s2.sloc
+      | 0, result -> result
+      | result, _ -> result
+
   end)
 
   module RegionMap = Map.Make (Region)
