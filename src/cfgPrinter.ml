@@ -100,14 +100,6 @@ module RegionMap = Map.Make (Region)
       |> List.map List.split
       |> List.map (Tuple2.map1 List.hd) ;;
 
-  (* TODO very likely exists, or should exist elsewhere *)
-  (* TODO this function does not return id of an equivalence class *)
-  (** Convert a region name [r] to a unique integer identifier for its
-      unification class.*)
-  let region_id (r: region): int =
-    r |> Region.zonk |> Region.uniq_of |> Uniq.to_int
-
-
   (* TODO: this might go if we kill rvt maps altogether *)
   (** Create an association list of region ids to variable-type name pairs.
       Used in constructing rvt maps from eba mappings *)
@@ -380,7 +372,6 @@ module RegionMap = Map.Make (Region)
     let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname rvtmap coloring
     in (* TODO: this might be failing when we have aliases *)
       assert_bool "Duplicate regions!" (RegionMap.cardinal rvtmap = Seq.length rvtseq);
-      assert_bool "Region id -1!" (RegionMap.for_all (fun k _ -> region_id k != -1) rvtmap);
       SmartPrint.to_stdout 10000 2 printout ;;
 
 end
