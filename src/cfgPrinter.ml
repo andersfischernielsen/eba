@@ -185,15 +185,6 @@ module MakeT (Monitor: PrinterSpec) = struct
       Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
 
-  (* TODO: remove once debugging is over *)
-  let step_kind_to_string (k: PathTree.step_kind): string =
-    match k with
-    | Stmt _ -> "Stmt"
-    | Test _ -> "Test"
-    | Goto _ -> "Goto"
-    | Ret _  -> "Ret" ;;
-
-
   (** Format the file info and the prefix *)
   let format_prefix (file: string) (func: string) : PP.doc =
     PP.(
@@ -318,33 +309,6 @@ module MakeT (Monitor: PrinterSpec) = struct
           |> RegionMap.of_enum
     in StepMap.map (RegionMap.union (fun _ _ r -> Some r) initials) coloring ;;
 
-
-  (* TODO: remove *)
-  let print_rsmap1 (region: region) (states: Monitor.state set): PP.doc =
-    PP.(Region.pp region ++ !^ "->" ++
-        brackets (states
-        |> Set.to_list
-        |> List.map (fun s -> !^ (Monitor.string_of_state s))
-        |> comma_sep) );;
-
-  (* TODO: remove *)
-  let format_config (rsmap: config): PP.doc =
-    PP.( rsmap
-        |> RegionMap.bindings
-          |> List.map (uncurry print_rsmap1)
-          |> space_sep
-          ) ;;
-
-  (* TODO: remove? *)
-  let pp_printer_state (step: step) (progress: progress) successors colors_post: PP.doc =
-    PP.(
-      !^ "****** l" + int step.sloc.line + !^ ": "
-      + PathTree.pp_step step + newline
-      + !^ "- current:" + format_config progress.current + newline
-      + !^ "- successors:" + format_config successors + newline
-      + !^ "- colors pre:" + format_config (StepMap.find_opt step progress.colors |? RegionMap.empty) + newline
-      + !^ "- colors post:" + format_config (StepMap.find_opt step colors_post |? RegionMap.empty) + newline
-    ) ;;
 
   let conf_diff (proposed: config) (seen: config): config =
     let diff _ proposed seen =
