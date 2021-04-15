@@ -101,23 +101,6 @@ module RegionMap = Map.Make (Region)
 
 
 
-  (*  TODO appears specific, and possibly exists elsewhere *)
-  (** Find the region [r] in the map [map] and apply [func] *)
-  let rvtmap_apply (r: region) (m: string region_map) (f: name -> unit): unit =
-    match RegionMap.find_opt r m with
-    | Some type_ -> f type_
-    | __________________ -> ()
-    (* TODO: Option.map ? *)
-
-
-  (*  TODO does not belong here, and possibly exists elsewhere *)
-  (** Get the variable name and type name for region [r] stored in
-      the rvtmap [m].  Empty strings if not stored.
-      TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get (m: string region_map) (r: region): name =
-    RegionMap.find_opt r m |? ""
-
-
   (** Format the file info and the prefix *)
   let format_prefix (file: string) (func: string) : PP.doc =
     PP.(
