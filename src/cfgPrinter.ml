@@ -2,7 +2,6 @@ open Batteries
 
 open Type
 open Abs
-open BatTuple.Tuple2
 open Option.Infix
 
 
@@ -25,14 +24,7 @@ module type Printer = sig
 
 end
 
-(** Lines for which no activity of the monitor is observed are presently not
-    printed. So for double lock, for instance, assume that these attracted no
-    colors (which should mean black). *)
 module MakeT (Monitor: PrinterSpec) = struct
-
-
-
-  (* Name several useful types to increase readability *)
 
   type step = PathTree.step
 
