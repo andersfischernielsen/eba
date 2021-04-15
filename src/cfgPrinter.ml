@@ -85,7 +85,7 @@ module RegionMap = Map.Make (Region)
     | ____________ -> false ;;
 
   (** Get region from a memory effect, ignore others *)
-  let get_region (e: Effects.e): (Region.t * Effects.e) option =
+  let get_region (e: Effects.e): (region * Effects.e) option =
     match e with
     | Effects.Mem (_, region) -> Some (region, e)
     | _______________________ -> None ;;
@@ -100,17 +100,16 @@ module RegionMap = Map.Make (Region)
       |> List.map List.split
       |> List.map (Tuple2.map1 List.hd) ;;
 
-  (* TODO: this might go if we kill rvt maps altogether *)
   (** Create an association list of region ids to variable-type name pairs.
       Used in constructing rvt maps from eba mappings *)
-  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (Region.t * name) Seq.t =
+  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (region * name) Seq.t =
     Seq.map (fun r -> (r, ty_name v)) (Regions.to_seq rr);;
 
 
 
   (*  TODO appears specific, and possibly exists elsewhere *)
   (** Find the region [r] in the map [map] and apply [func] *)
-  let rvtmap_apply (r: Region.t) (m: string region_map) (f: name -> unit): unit =
+  let rvtmap_apply (r: region) (m: string region_map) (f: name -> unit): unit =
     match RegionMap.find_opt r m with
     | Some type_ -> f type_
     | __________________ -> ()
@@ -121,7 +120,7 @@ module RegionMap = Map.Make (Region)
   (** Get the variable name and type name for region [r] stored in
       the rvtmap [m].  Empty strings if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get (m: string region_map) (r: Region.t): name =
+  let rvtmap_get (m: string region_map) (r: region): name =
     RegionMap.find_opt r m |? ""
 
 

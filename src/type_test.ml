@@ -23,7 +23,6 @@ let bound_region_unification _ =
   in assert_bool post_msg (Region.equal (Region.zonk r1) (Region.zonk r2)) ;;
 
 
-
 let tests = "type" >::: [
   "unification equates regions, but not uniq ids" >:: bound_region_unification;
 ]
