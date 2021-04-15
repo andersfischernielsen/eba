@@ -275,10 +275,8 @@ module RegionMap = Map.Make (Region)
       |> Seq.of_list
       |> RegionMap.of_seq
       |> fire_transitions progress.current in
-    let colors1 = add_colors step successors progress.colors in
-    (*let _ = pp_printer_state step progress successors colors1 |> PP.to_stdout in*)
-    (*let _ = BatIO.flush_all () in *)
-    {
+    let colors1 = add_colors step successors progress.colors
+    in {
       current = successors ;
       colors = colors1;
       path = progress.path
