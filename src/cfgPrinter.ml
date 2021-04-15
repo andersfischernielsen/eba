@@ -108,30 +108,32 @@ module RegionMap = Map.Make (Region)
       indent (
         !^ "file:" ++ !^ file + newline +
         !^ "lines:"
-      )
-   )
+    )) ;;
+
 
   let pp_colors (region: region) (colors: color set): PP.doc =
     let color_docs = PP.(colors
       |> Set.to_list
-      |> List.map (Monitor.string_of_state)
-      |> List.map (!^)
+      |> List.sort Pervasives.compare
+      |> List.map @@ words % Monitor.string_of_state
       |> comma_sep
-      |> brackets
-    )
+      |> brackets)
     in PP.(
       newline + !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
-      (if Set.is_empty colors then empty else color_docs)
+      color_docs
     ) ;;
+
 
   (** Format the effects of the step/line *)
   let pp_effects_regions (effects: Effects.EffectSet.t): PP.doc =
     PP.(effects
     |> Effects.EffectSet.to_list
+    |> List.unique
     |> List.map Effects.pp_e
-    |> List.map PP.double_quotes
+    |> List.map double_quotes
     |> comma_sep
     |> brackets ) ;;
+
 
   let pp_effect_name = function
     | Effects.Mem(k, _) -> (Effects.pp_kind k)
@@ -143,14 +145,17 @@ module RegionMap = Map.Make (Region)
     | Effects.Sleep     -> PP.(!^ "sleep")
     | _________________ -> PP.empty ;;
 
+
   (** Format the effects of the step/line *)
   let pp_effects (effects: Effects.EffectSet.t): PP.doc =
     PP.(effects
     |> Effects.EffectSet.to_list
+    |> List.unique
     |> List.map pp_effect_name
     |> List.filter (fun d -> d != empty)
     |> comma_sep
     |> brackets ) ;;
+
 
   (** Format regions accessed in the step/line *)
   let pp_regions (regions: region list): PP.doc =
@@ -159,6 +164,7 @@ module RegionMap = Map.Make (Region)
     |> List.map PP.double_quotes
     |> comma_sep
     |> brackets) ;;
+
 
   (** Print a single output line *)
   let pp_step (rt: typ region_map) (step: step) (colors: config): PP.doc =
@@ -193,20 +199,21 @@ module RegionMap = Map.Make (Region)
       )
     ) ;;
 
-  (* TODO: isn't there any other way to compare locations? Why is this here? *)
-  let cmp_loc (sc1: step * config) (sc2: step * config): int =
+
+  let cmp_step_config (sc1: step * config) (sc2: step * config): int =
       let s1, s2 = fst sc1, fst sc2 in
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
+
 
   (** Print all lines in the provided map *)
   let pp_steps (file: string) (func: string) (rt: typ region_map) (colors: config StepMap.t): PP.doc =
     PP.(colors
       |> StepMap.bindings
-      |> List.stable_sort cmp_loc
-      |> List.map (uncurry (pp_step rt))
+      |> List.stable_sort cmp_step_config
+      |> List.map @@ uncurry @@ pp_step rt
       |> concat
       |> indent
-      |> append (pp_prefix file func)
+      |> append @@ pp_prefix file func
       |> flip append @@ newline
     ) ;;
 
@@ -217,22 +224,14 @@ module RegionMap = Map.Make (Region)
       (colorings, configs) with the same domain. *)
   let make_total (coloring: config StepMap.t): config StepMap.t =
     let initials = coloring
-          |> StepMap.values
-          |> Enum.map RegionMap.keys
-          |> Enum.map Regions.of_enum
-          |> Enum.reduce Regions.union
-          |> Regions.enum
-          |> Enum.map (fun r -> (r,Set.singleton Monitor.initial_state))
-          |> RegionMap.of_enum
+      |> StepMap.values
+      |> Enum.map RegionMap.keys
+      |> Enum.map Regions.of_enum
+      |> Enum.reduce Regions.union
+      |> Regions.enum
+      |> Enum.map (fun r -> r, Set.singleton Monitor.initial_state)
+      |> RegionMap.of_enum
     in StepMap.map (RegionMap.union (fun _ _ r -> Some r) initials) coloring ;;
-
-
-  let conf_diff (proposed: config) (seen: config): config =
-    let diff _ proposed seen =
-      match proposed, seen with
-      | _, None | None, _ -> proposed
-      | Some p, Some s -> Some (Set.diff p s) in
-    RegionMap.merge diff proposed seen ;;
 
 
   (** Merge the old and new set of colors for a region by unioning them. Do this
@@ -318,15 +317,6 @@ module RegionMap = Map.Make (Region)
     | Nil -> progress
   ;;
 
-  (** Create an association list of region ids to variable-type name pairs.
-      Used in constructing rvt maps from eba mappings *)
-  let rt (v: Cil.varinfo) (rr: Regions.t): (region * typ) Seq.t =
-    rr
-      |> Regions.to_seq
-      |> Seq.map (Tuple2.make v.vtype) |> Seq.map Tuple2.swap ;;
-
-
-
 
   (** This is the main function of the module. It explores the paths in the
       [file] and prints the coloring for the lines traversed (according to a
@@ -342,8 +332,9 @@ module RegionMap = Map.Make (Region)
       |> Seq.of_list
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rtmap = Seq.append local global
-      |> Seq.map (uncurry rt)
-      |> Seq.flatten
+      |> Seq.map (fun vrr -> fst vrr, snd vrr |> Regions.to_seq)
+      |> Seq.flat_map (uncurry @@ fun (v: Cil.varinfo) -> Seq.map (Tuple2.make v.vtype))
+      |> Seq.map Tuple2.swap
       |> RegionMap.of_seq in
     let initial = {
       colors  = StepMap.empty ;
