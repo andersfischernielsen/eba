@@ -240,16 +240,14 @@ module RegionMap = Map.Make (Region)
     RegionMap.union (fun _ s1 s2 -> Some (Set.union s1 s2)) proposal seen ;;
 
 
-  let add_colors (step: step) (to_visit: config)
-    (visited: config StepMap.t): config StepMap.t =
-    StepMap.modify_def RegionMap.empty step (conf_union to_visit) visited
+  let add_colors (step: step) (to_add: config) (old: config StepMap.t): config StepMap.t =
+    StepMap.modify_def RegionMap.empty step (conf_union to_add) old
 
 
   (** Execute all monitor automata in the configuration [current] by letting
       them see all the effects in the map [effects].  Both structures are
       indexed by regions, and the operation is point-wise. Produces a successor
-      configuration for a step (which is the coloring used in the next step!).
-   *)
+      configuration for a step (which is the coloring used in the next step).  *)
   let fire_transitions (current: config) (effects: Effects.e list region_map)
     : config =
     let f _ (s: color set option) (e: Effects.e list option): color set option =
@@ -259,11 +257,8 @@ module RegionMap = Map.Make (Region)
       | Some states, None ->
         Some (Set.map (flip Monitor.transition []) states)
       | None, Some effects ->
-        if List.exists Monitor.is_in_transition_labels effects
-        then Some (Set.singleton
-          @@ Monitor.transition Monitor.initial_state effects)
-        else None
-      | _ -> None (* shouldn't happen *)
+        Some (Set.singleton @@ Monitor.transition Monitor.initial_state effects)
+      | _ -> None
     in RegionMap.merge f current effects ;;
 
 
