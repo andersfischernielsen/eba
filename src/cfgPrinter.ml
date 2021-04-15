@@ -65,31 +65,25 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   end)
 
-  module RegionMap = Map.Make (Region)
+module RegionMap = Map.Make (Region)
 
   type 'a set = 'a Set.t
   type 'a region_map = 'a RegionMap.t
-
-  (* TODO: concerned that region_map might still ignore zonking *)
-  type config = Monitor.state set region_map
-
-  (* TODO: temporary type to have one place of definition, definitely still messy *)
+  type color = Monitor.state
+  type config = color set region_map
   type progress = {
-    colors : config StepMap.t ; (* states of pertinent monitors after the step *)
-    current: config ;
-    path   : unit -> PathTree.t
+    colors : config StepMap.t ; (* states of pertinent monitors after each step *)
+    current: config ;           (* states passed from the previous step *)
+    path   : unit -> PathTree.t (* the path that still needs to be explored *)
   }
 
 
   let assert_bool = OUnit2.assert_bool;;
 
-  let is_call (instr: Cil.instr): bool =
-    match instr with
+  let is_call = function
     | Cil.(Call _) -> true
     | ____________ -> false ;;
 
-
-  (* TODO: this might be eliminatable *)
   (** Get region from a memory effect, ignore others *)
   let get_region (e: Effects.e): (Region.t * Effects.e) option =
     match e with
@@ -99,13 +93,12 @@ module MakeT (Monitor: PrinterSpec) = struct
   let ty_name (v: Cil.varinfo): name =
     Cil.d_type () v.vtype |> Pretty.sprint ~width:80 |> String.trim ;;
 
-  (* TODO: the function name is more specific than type *)
-  let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
-    let _ = assert_bool "extract_regions requires a non-empty list"
-      (List.is_empty r_es |> not) in
-    let split = List.split r_es in
-    (split |> fst |> List.hd, snd split)
-
+  let group_by_region (reffs: (region * 'b) list): (region * 'b list) list =
+    assert_bool "need non-empty list" (reffs |> List.is_empty |> not) ;
+    reffs
+      |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
+      |> List.map List.split
+      |> List.map (Tuple2.map1 List.hd) ;;
 
   (* TODO very likely exists, or should exist elsewhere *)
   (* TODO this function does not return id of an equivalence class *)
@@ -150,7 +143,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       )
    )
 
-  let format_colors (region: region) (colors: Monitor.state set): PP.doc =
+  let format_colors (region: region) (colors: color set): PP.doc =
     let color_docs = PP.(colors
       |> Set.to_list
       |> List.map (Monitor.string_of_state)
@@ -291,8 +284,7 @@ module MakeT (Monitor: PrinterSpec) = struct
    *)
   let fire_transitions (current: config) (effects: Effects.e list region_map)
     : config =
-    let f _ (s: Monitor.state set option) (e: Effects.e list option)
-      : Monitor.state set option =
+    let f _ (s: color set option) (e: Effects.e list option): color set option =
       match s, e with
       | Some states, Some effects ->
         Some (Set.map (flip Monitor.transition effects) states)
@@ -316,8 +308,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> Effects.EffectSet.filter Monitor.is_in_transition_labels
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
-      |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
-      |> List.map extract_regions
+      |> group_by_region
       |> Seq.of_list
       |> RegionMap.of_seq
       |> fire_transitions progress.current in

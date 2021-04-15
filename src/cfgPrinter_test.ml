@@ -9,15 +9,6 @@ module O = OUnitAssert
 
 module RegionMap = P.RegionMap
 
-(** A trivial test, sanity check that infrastructore works *)
-let test_extract_regions _ =
-  match O.raises (fun _ -> P.extract_regions []) with
-  | Some (OUnitTest.OUnit_failure _)  ->
-      ()
-  | Some (_) ->
-      failwith "should reject empty list with an Assert_failure"
-  | None ->
-      failwith "should reject an empty list" ;;
 
 let cmp_colors (a: M.state P.set RegionMap.t)
                (b: M.state P.set RegionMap.t): bool =
@@ -43,7 +34,6 @@ let test_conf_union _ =
 
 
 let cfgPrinter_tests = "cfgPrinter" >::: [
-  "extract_regions" >:: test_extract_regions;
   "conf_union" >:: test_conf_union;
   ]
 
