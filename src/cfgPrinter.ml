@@ -276,12 +276,13 @@ module MakeT (Monitor: PrinterSpec) = struct
       )
     )
 
+  (* TODO: isn't there any other way to compare locations? Why is this here? *)
   let cmp_loc (sc1: step * config) (sc2: step * config): int =
       let s1, s2 = fst sc1, fst sc2 in
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
   (** Print all lines in the provided map *)
-  let format_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
+  let pp_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
     PP.(colors
       |> StepMap.bindings
       |> List.stable_sort cmp_loc
@@ -291,6 +292,22 @@ module MakeT (Monitor: PrinterSpec) = struct
       |> append (format_prefix file func)
       |> flip append @@ newline
     ) ;;
+
+
+
+  (** Collect all regions mentioned in [coloring] of all steps, and complete all
+      entries for each step with initial states, so that all steps return maps
+      (colorings, configs) with the same domain. *)
+  let make_total (coloring: config StepMap.t): config StepMap.t =
+    let initials = coloring
+          |> StepMap.values
+          |> Enum.map RegionMap.keys
+          |> Enum.map Regions.of_enum
+          |> Enum.reduce Regions.union
+          |> Regions.enum
+          |> Enum.map (fun r -> (r,Set.singleton Monitor.initial_state))
+          |> RegionMap.of_enum
+    in StepMap.map (RegionMap.union (fun _ _ r -> Some r) initials) coloring ;;
 
 
   (* TODO: remove *)
@@ -440,8 +457,8 @@ module MakeT (Monitor: PrinterSpec) = struct
       path    = PathTree.paths_of func } in
     let outcome =
       Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
-    let printout =
-      format_steps decl_f.svar.vdecl.file decl_f.svar.vname outcome.colors
+    let coloring = make_total outcome.colors in
+    let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname coloring
     in (* TODO: this might be failing when we have aliases *)
       (*assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);*)
       assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
