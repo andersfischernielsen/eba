@@ -67,11 +67,8 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   module RegionMap = Map.Make (Region)
 
-
   type 'a set = 'a Set.t
   type 'a region_map = 'a RegionMap.t
-  type rvtmap = (name * name) region_map
-  (* TODO: perhap just name region_map, when it works *)
 
   (* TODO: concerned that region_map might still ignore zonking *)
   type config = Monitor.state set region_map
@@ -121,52 +118,27 @@ module MakeT (Monitor: PrinterSpec) = struct
   (* TODO: this might go if we kill rvt maps altogether *)
   (** Create an association list of region ids to variable-type name pairs.
       Used in constructing rvt maps from eba mappings *)
-  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (Region.t * (name * name)) Seq.t =
-    (* TODO: it looks like here, we can just drop the first component *)
-    Seq.map (fun r -> (r, (v.vname, ty_name v))) (Regions.to_seq rr);;
+  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (Region.t * name) Seq.t =
+    Seq.map (fun r -> (r, ty_name v)) (Regions.to_seq rr);;
 
 
 
   (*  TODO appears specific, and possibly exists elsewhere *)
   (** Find the region [r] in the map [map] and apply [func] *)
-  let rvtmap_apply (r: Region.t) (m: rvtmap) (f: name -> name -> unit): unit =
+  let rvtmap_apply (r: Region.t) (m: string region_map) (f: name -> unit): unit =
     match RegionMap.find_opt r m with
-    | Some (name, type_) -> f type_ name
+    | Some type_ -> f type_
     | __________________ -> ()
+    (* TODO: Option.map ? *)
 
 
   (*  TODO does not belong here, and possibly exists elsewhere *)
   (** Get the variable name and type name for region [r] stored in
       the rvtmap [m].  Empty strings if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get (m: rvtmap) (r: Region.t): name * name =
-    Option.default ("", "") (RegionMap.find_opt r m)
+  let rvtmap_get (m: string region_map) (r: Region.t): name =
+    RegionMap.find_opt r m |? ""
 
-
-  (*  TODO does not belong here, and possibly exists elsewhere *)
-  (** Get the variable name of region [r] stored in the rvtmap [m].
-      Empty string if not stored.
-      TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get_name (m: rvtmap) (r: Region.t): name = rvtmap_get m r |> fst
-
-
-
-  (* TODO: a bit too many args? what is calls? *)
-  (* TODO: why are calls needed here? *)
-  (* TODO: Would it make sense to return doc? *)
-  (** Translate a region [r] and state [s] information into a log entry
-      containing state, the lock name, the variable type and the region name,
-      plus all the regions involved in the calls *)
-  let region_state_string (r: region) (s: Monitor.state) (m: rvtmap): string =
-    let r_string = Region.pp r |> PP.to_string in
-    let _ = assert_bool (Printf.sprintf "Region r is bound %s" r_string)
-      (Region.is_meta r) in
-    let _ = assert_bool "region info undefined in var-region map!"
-      (RegionMap.mem r m) in
-    let sname = Monitor.string_of_state s in
-    let vname, vtype = rvtmap_get m r in
-      Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
-        sname vname vtype r_string ;;
 
   (** Format the file info and the prefix *)
   let format_prefix (file: string) (func: string) : PP.doc =
@@ -215,7 +187,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     PP.(effects
     |> Effects.EffectSet.to_list
     |> List.map pp_effect_name
-    |> List.map PP.double_quotes
+    |> List.filter (fun d -> d != empty)
     |> comma_sep
     |> brackets ) ;;
 
@@ -228,14 +200,14 @@ module MakeT (Monitor: PrinterSpec) = struct
     |> brackets) ;;
 
   (** Print a single output line *)
-  let pp_step (rvtmap: rvtmap) (step: step) (colors: config): PP.doc =
+  let pp_step (rvtmap: string region_map) (step: step) (colors: config): PP.doc =
     let regions = step.effs.may
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
       |> List.map fst in
     let types: name list = regions
       |> List.map (fun r -> RegionMap.find_opt r rvtmap)
-      |> List.map (function Some (_,s) -> [s] | None -> [] )
+      |> List.map (function Some s -> [s] | None -> [] )
       |> List.flatten
     in
     PP.(
@@ -265,7 +237,7 @@ module MakeT (Monitor: PrinterSpec) = struct
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
   (** Print all lines in the provided map *)
-  let pp_steps (file: string) (func: string) (rvtmap: rvtmap) (colors: config StepMap.t): PP.doc =
+  let pp_steps (file: string) (func: string) (rvtmap: string region_map) (colors: config StepMap.t): PP.doc =
     PP.(colors
       |> StepMap.bindings
       |> List.stable_sort cmp_loc
