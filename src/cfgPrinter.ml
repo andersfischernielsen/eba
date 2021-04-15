@@ -81,9 +81,11 @@ module RegionMap = Map.Make (Region)
 
   let assert_bool = OUnit2.assert_bool;;
 
+
   let is_call = function
     | Cil.(Call _) -> true
     | ____________ -> false ;;
+
 
   (** Get region from a memory effect, ignore others *)
   let get_region (e: Effects.e): (region * Effects.e) option =
@@ -91,18 +93,16 @@ module RegionMap = Map.Make (Region)
     | Effects.Mem (_, region) -> Some (region, e)
     | _______________________ -> None ;;
 
+
   let group_by_region (reffs: (region * 'b) list): (region * 'b list) list =
-    assert_bool "need non-empty list" (reffs |> List.is_empty |> not) ;
     reffs
       |> List.group (fun r r' -> Region.compare (fst r) (fst r'))
       |> List.map List.split
       |> List.map (Tuple2.map1 List.hd) ;;
 
 
-
-
   (** Format the file info and the prefix *)
-  let format_prefix (file: string) (func: string) : PP.doc =
+  let pp_prefix (file: string) (func: string): PP.doc =
     PP.(
       words "- func:" ++ !^ func + newline +
       indent (
@@ -111,7 +111,7 @@ module RegionMap = Map.Make (Region)
       )
    )
 
-  let format_colors (region: region) (colors: color set): PP.doc =
+  let pp_colors (region: region) (colors: color set): PP.doc =
     let color_docs = PP.(colors
       |> Set.to_list
       |> List.map (Monitor.string_of_state)
@@ -134,14 +134,14 @@ module RegionMap = Map.Make (Region)
     |> brackets ) ;;
 
   let pp_effect_name = function
-    | Effects.Mem(k,r) -> PP.(Effects.pp_kind k)
-    | Effects.Noret    -> PP.(!^ "noret")
-    | Effects.IrqsOn   -> PP.(!^ "irqson")
-    | Effects.IrqsOff  -> PP.(!^ "irqsoff")
-    | Effects.BhsOn    -> PP.(!^ "bhson")
-    | Effects.BhsOff   -> PP.(!^ "bhsoff")
-    | Effects.Sleep    -> PP.(!^ "sleep")
-    | _    -> PP.empty
+    | Effects.Mem(k, _) -> (Effects.pp_kind k)
+    | Effects.Noret     -> PP.(!^ "noret")
+    | Effects.IrqsOn    -> PP.(!^ "irqson")
+    | Effects.IrqsOff   -> PP.(!^ "irqsoff")
+    | Effects.BhsOn     -> PP.(!^ "bhson")
+    | Effects.BhsOff    -> PP.(!^ "bhsoff")
+    | Effects.Sleep     -> PP.(!^ "sleep")
+    | _________________ -> PP.empty ;;
 
   (** Format the effects of the step/line *)
   let pp_effects (effects: Effects.EffectSet.t): PP.doc =
@@ -166,9 +166,10 @@ module RegionMap = Map.Make (Region)
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
       |> List.map fst in
-    let types = regions
+    let type_names = regions
       |> List.filter_map @@ flip RegionMap.find_opt rt
       |> List.map @@ Cil.d_type ()
+      |> List.unique
       |> List.map @@ Pretty.sprint ~width:80
       |> List.map PP.(double_quotes % words)
     in
@@ -182,15 +183,15 @@ module RegionMap = Map.Make (Region)
           colors
           |> RegionMap.bindings
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))
-          |> List.map (uncurry format_colors)
+          |> List.map (uncurry pp_colors)
           |> concat
         )) +
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
         newline + words "effects_names:" ++ pp_effects step.effs.may +
         newline + words "regions:" ++ pp_regions regions +
-        newline + words "types:" ++ PP.(types |> comma_sep |> brackets)
+        newline + words "types:" ++ PP.(type_names |> comma_sep |> brackets)
       )
-    )
+    ) ;;
 
   (* TODO: isn't there any other way to compare locations? Why is this here? *)
   let cmp_loc (sc1: step * config) (sc2: step * config): int =
@@ -205,7 +206,7 @@ module RegionMap = Map.Make (Region)
       |> List.map (uncurry (pp_step rt))
       |> concat
       |> indent
-      |> append (format_prefix file func)
+      |> append (pp_prefix file func)
       |> flip append @@ newline
     ) ;;
 
