@@ -41,13 +41,13 @@ module MakeT (Monitor: PrinterSpec) = struct
           (* a gamble: instr can embed expressions, and elsewhere there is a
              custom comparator of expressions.  If out of memory errors reappear
              in map, then consider refining  this to use CilExtra.compareExp. *)
-      | Test (tk1,e1), Test (tk2,e2) when tk1 = tk2 ->
+      | Test (tk1, e1), Test (tk2, e2) when tk1 = tk2 ->
           CilExtra.compareExp e1 e2
-      | Test (tk1,e1), Test (tk2,e2) ->
+      | Test (tk1, _), Test (tk2, _) ->
           Pervasives.compare tk1 tk2
       | Goto (la1,lo1), Goto (la2, lo2) when la1 = la2 ->
           Cil.compareLoc lo1 lo2
-      | Goto (la1,lo1), Goto (la2, lo2) ->
+      | Goto (la1,_), Goto (la2, _) ->
           Pervasives.compare la1 la2
       | Ret eo1, Ret eo2 -> Option.compare ~cmp:CilExtra.compareExp eo1 eo2
       | Stmt _, _ -> -1
