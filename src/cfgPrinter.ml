@@ -70,6 +70,7 @@ module RegionMap = Map.Make (Region)
   type 'a set = 'a Set.t
   type 'a region_map = 'a RegionMap.t
   type color = Monitor.state
+  type typ = Cil.typ
   type config = color set region_map
   type progress = {
     colors : config StepMap.t ; (* states of pertinent monitors after each step *)
@@ -90,9 +91,6 @@ module RegionMap = Map.Make (Region)
     | Effects.Mem (_, region) -> Some (region, e)
     | _______________________ -> None ;;
 
-  let ty_name (v: Cil.varinfo): name =
-    Cil.d_type () v.vtype |> Pretty.sprint ~width:80 |> String.trim ;;
-
   let group_by_region (reffs: (region * 'b) list): (region * 'b list) list =
     assert_bool "need non-empty list" (reffs |> List.is_empty |> not) ;
     reffs
@@ -100,10 +98,6 @@ module RegionMap = Map.Make (Region)
       |> List.map List.split
       |> List.map (Tuple2.map1 List.hd) ;;
 
-  (** Create an association list of region ids to variable-type name pairs.
-      Used in constructing rvt maps from eba mappings *)
-  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (region * name) Seq.t =
-    Seq.map (fun r -> (r, ty_name v)) (Regions.to_seq rr);;
 
 
 
@@ -184,15 +178,16 @@ module RegionMap = Map.Make (Region)
     |> brackets) ;;
 
   (** Print a single output line *)
-  let pp_step (rvtmap: string region_map) (step: step) (colors: config): PP.doc =
+  let pp_step (rt: typ region_map) (step: step) (colors: config): PP.doc =
     let regions = step.effs.may
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
       |> List.map fst in
-    let types: name list = regions
-      |> List.map (fun r -> RegionMap.find_opt r rvtmap)
-      |> List.map (function Some s -> [s] | None -> [] )
-      |> List.flatten
+    let types = regions
+      |> List.filter_map @@ flip RegionMap.find_opt rt
+      |> List.map @@ Cil.d_type ()
+      |> List.map @@ Pretty.sprint ~width:80
+      |> List.map PP.(double_quotes % words)
     in
     PP.(
       newline + words "- line:" ++ int step.sloc.line + newline +
@@ -210,8 +205,7 @@ module RegionMap = Map.Make (Region)
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
         newline + words "effects_names:" ++ pp_effects step.effs.may +
         newline + words "regions:" ++ pp_regions regions +
-        newline + words "types:" ++
-          PP.(types |> List.map words |> List.map double_quotes |> comma_sep |> brackets)
+        newline + words "types:" ++ PP.(types |> comma_sep |> brackets)
       )
     )
 
@@ -221,11 +215,11 @@ module RegionMap = Map.Make (Region)
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
   (** Print all lines in the provided map *)
-  let pp_steps (file: string) (func: string) (rvtmap: string region_map) (colors: config StepMap.t): PP.doc =
+  let pp_steps (file: string) (func: string) (rt: typ region_map) (colors: config StepMap.t): PP.doc =
     PP.(colors
       |> StepMap.bindings
       |> List.stable_sort cmp_loc
-      |> List.map (uncurry (pp_step rvtmap))
+      |> List.map (uncurry (pp_step rt))
       |> concat
       |> indent
       |> append (format_prefix file func)
@@ -340,6 +334,13 @@ module RegionMap = Map.Make (Region)
     | Nil -> progress
   ;;
 
+  (** Create an association list of region ids to variable-type name pairs.
+      Used in constructing rvt maps from eba mappings *)
+  let rt (v: Cil.varinfo) (rr: Regions.t): (region * typ) Seq.t =
+    rr
+      |> Regions.to_seq
+      |> Seq.map (Tuple2.make v.vtype) |> Seq.map Tuple2.swap ;;
+
 
 
 
@@ -348,19 +349,18 @@ module RegionMap = Map.Make (Region)
       lock monitor). *)
   let print (file: AFile.t) (decl_f: Cil.fundec) (inline_limit: int): unit =
     let _ = Printexc.record_backtrace true in
-    (* TODO: a lot of the code below is not used right now. Revised when done *)
     let func = AFile.find_fun file decl_f.svar
       |> Option.get
       |> snd in
     let global = AFile.global_variables_and_regions file
-      |> Map.to_seq in
+      |> Map.to_seq  in
     let local = decl_f.sformals @ decl_f.slocals
       |> Seq.of_list
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
-    let rvtseq = Seq.append local global
-      |> Seq.map (uncurry rvt_mk)
-      |> Seq.flatten in
-    let rvtmap = RegionMap.of_seq rvtseq in
+    let rtmap = Seq.append local global
+      |> Seq.map (uncurry rt)
+      |> Seq.flatten
+      |> RegionMap.of_seq in
     let initial = {
       colors  = StepMap.empty ;
       current = RegionMap.empty;
@@ -368,10 +368,8 @@ module RegionMap = Map.Make (Region)
     let outcome =
       Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
     let coloring = make_total outcome.colors in
-    let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname rvtmap coloring
-    in (* TODO: this might be failing when we have aliases *)
-      assert_bool "Duplicate regions!" (RegionMap.cardinal rvtmap = Seq.length rvtseq);
-      SmartPrint.to_stdout 10000 2 printout ;;
+    let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname rtmap coloring
+    in SmartPrint.to_stdout 10000 2 printout ;;
 
 end
 
