@@ -84,11 +84,11 @@ module MakeT (Monitor: PrinterSpec) = struct
 
   module RegionMap = Map.Make (Region)
 
-  (** maps a region number to a variable name and a type name/string *)
-  type rvtmap = (int, name * name) BatMap.t
 
   type 'a set = 'a Set.t
   type 'a region_map = 'a RegionMap.t
+  type rvtmap = (name * name) region_map
+  (* TODO: perhap just name region_map, when it works *)
 
   (* TODO: concerned that region_map might still ignore zonking *)
   type config = Monitor.state set region_map
@@ -117,7 +117,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     | _______________________ -> None ;;
 
   let ty_name (v: Cil.varinfo): name =
-    Cil.d_type () v.vtype |> Pretty.sprint ~width:80;;
+    Cil.d_type () v.vtype |> Pretty.sprint ~width:80 |> String.trim ;;
 
   (* TODO: the function name is more specific than type *)
   let extract_regions (r_es: ('a * 'b) list): 'a * 'b list =
@@ -138,15 +138,16 @@ module MakeT (Monitor: PrinterSpec) = struct
   (* TODO: this might go if we kill rvt maps altogether *)
   (** Create an association list of region ids to variable-type name pairs.
       Used in constructing rvt maps from eba mappings *)
-  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (int * (name * name)) Seq.t =
-    Seq.map (fun r -> (region_id r, (v.vname, ty_name v))) (Regions.to_seq rr);;
+  let rvt_mk (v: Cil.varinfo) (rr: Regions.t): (Region.t * (name * name)) Seq.t =
+    (* TODO: it looks like here, we can just drop the first component *)
+    Seq.map (fun r -> (r, (v.vname, ty_name v))) (Regions.to_seq rr);;
 
 
 
   (*  TODO appears specific, and possibly exists elsewhere *)
   (** Find the region [r] in the map [map] and apply [func] *)
-  let rvtmap_apply (r: int) (m: rvtmap) (f: name -> name -> unit): unit =
-    match BatMap.find_opt r m with
+  let rvtmap_apply (r: Region.t) (m: rvtmap) (f: name -> name -> unit): unit =
+    match RegionMap.find_opt r m with
     | Some (name, type_) -> f type_ name
     | __________________ -> ()
 
@@ -155,15 +156,15 @@ module MakeT (Monitor: PrinterSpec) = struct
   (** Get the variable name and type name for region [r] stored in
       the rvtmap [m].  Empty strings if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get (m: rvtmap) (r: int): name * name =
-    Option.default ("", "") (BatMap.find_opt r m)
+  let rvtmap_get (m: rvtmap) (r: Region.t): name * name =
+    Option.default ("", "") (RegionMap.find_opt r m)
 
 
   (*  TODO does not belong here, and possibly exists elsewhere *)
   (** Get the variable name of region [r] stored in the rvtmap [m].
       Empty string if not stored.
       TODO: shouldn't this be an assertion failure instead? *)
-  let rvtmap_get_name (m: rvtmap) (r: int): name = rvtmap_get m r |> fst
+  let rvtmap_get_name (m: rvtmap) (r: Region.t): name = rvtmap_get m r |> fst
 
 
 
@@ -178,9 +179,9 @@ module MakeT (Monitor: PrinterSpec) = struct
     let _ = assert_bool (Printf.sprintf "Region r is bound %s" r_string)
       (Region.is_meta r) in
     let _ = assert_bool "region info undefined in var-region map!"
-      (BatMap.mem (region_id r) m) in
+      (RegionMap.mem r m) in
     let sname = Monitor.string_of_state s in
-    let vname, vtype = rvtmap_get m (region_id r) in
+    let vname, vtype = rvtmap_get m r in
       Printf.sprintf "%s, LockName:%s, LockType:%s, LockRegion:%s"
         sname vname vtype r_string ;;
 
@@ -245,18 +246,24 @@ module MakeT (Monitor: PrinterSpec) = struct
     |> brackets ) ;;
 
   (** Format regions accessed in the step/line *)
-  let pp_regions (effects: Effects.EffectSet.t): PP.doc =
-    PP.(effects
-    |> Effects.EffectSet.to_list
-    |> List.filter_map get_region
-    |> List.map fst
+  let pp_regions (regions: region list): PP.doc =
+    PP.(regions
     |> List.map Region.pp
     |> List.map PP.double_quotes
     |> comma_sep
     |> brackets) ;;
 
   (** Print a single output line *)
-  let format_step (step: step) (colors: config): PP.doc =
+  let pp_step (rvtmap: rvtmap) (step: step) (colors: config): PP.doc =
+    let regions = step.effs.may
+      |> Effects.EffectSet.to_list
+      |> List.filter_map get_region
+      |> List.map fst in
+    let types: name list = regions
+      |> List.map (fun r -> RegionMap.find_opt r rvtmap)
+      |> List.map (function Some (_,s) -> [s] | None -> [] )
+      |> List.flatten
+    in
     PP.(
       newline + words "- line:" ++ int step.sloc.line + newline +
       indent (
@@ -272,7 +279,9 @@ module MakeT (Monitor: PrinterSpec) = struct
         )) +
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
         newline + words "effects_names:" ++ pp_effects step.effs.may +
-        newline + words "regions:" ++ pp_regions step.effs.may
+        newline + words "regions:" ++ pp_regions regions +
+        newline + words "types:" ++
+          PP.(types |> List.map words |> List.map double_quotes |> comma_sep |> brackets)
       )
     )
 
@@ -282,11 +291,11 @@ module MakeT (Monitor: PrinterSpec) = struct
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
   (** Print all lines in the provided map *)
-  let pp_steps (file: string) (func: string) (colors: config StepMap.t): PP.doc =
+  let pp_steps (file: string) (func: string) (rvtmap: rvtmap) (colors: config StepMap.t): PP.doc =
     PP.(colors
       |> StepMap.bindings
       |> List.stable_sort cmp_loc
-      |> List.map (uncurry format_step)
+      |> List.map (uncurry (pp_step rvtmap))
       |> concat
       |> indent
       |> append (format_prefix file func)
@@ -450,7 +459,7 @@ module MakeT (Monitor: PrinterSpec) = struct
     let rvtseq = Seq.append local global
       |> Seq.map (uncurry rvt_mk)
       |> Seq.flatten in
-    let rvtmap = Map.of_seq rvtseq in
+    let rvtmap = RegionMap.of_seq rvtseq in
     let initial = {
       colors  = StepMap.empty ;
       current = RegionMap.empty;
@@ -458,10 +467,10 @@ module MakeT (Monitor: PrinterSpec) = struct
     let outcome =
       Printexc.pass (fun _ -> explore_paths func inline_limit initial) () in
     let coloring = make_total outcome.colors in
-    let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname coloring
+    let printout = pp_steps decl_f.svar.vdecl.file decl_f.svar.vname rvtmap coloring
     in (* TODO: this might be failing when we have aliases *)
-      (*assert_bool "Duplicate regions!" (Map.cardinal rvtmap = Seq.length rvtseq);*)
-      assert_bool "Regions with id -1!" (Map.for_all (fun k _ -> k != -1) rvtmap);
+      assert_bool "Duplicate regions!" (RegionMap.cardinal rvtmap = Seq.length rvtseq);
+      assert_bool "Region id -1!" (RegionMap.for_all (fun k _ -> region_id k != -1) rvtmap);
       SmartPrint.to_stdout 10000 2 printout ;;
 
 end
