@@ -101,26 +101,15 @@ module RegionMap = Map.Make (Region)
       |> List.map (Tuple2.map1 List.hd) ;;
 
 
-  (** Format the file info and the prefix *)
-  let pp_prefix (file: string) (func: string): PP.doc =
-    PP.(
-      words "- func:" ++ !^ func + newline +
-      indent (
-        !^ "file:" ++ !^ file + newline +
-        !^ "lines:"
-    )) ;;
 
-
-  let pp_colors (region: region) (colors: color set): PP.doc =
-    let color_docs = PP.(colors
+  let pp_colors (colors: color set): string =
+    PP.(colors
       |> Set.to_list
       |> List.sort Pervasives.compare
       |> List.map @@ words % Monitor.string_of_state
       |> comma_sep
-      |> brackets)
-    in PP.(
-      newline + !^ "-" ++ double_quotes (Region.pp region) ++ colon ++
-      color_docs
+      |> brackets
+      |> to_string
     ) ;;
 
 
@@ -166,45 +155,44 @@ module RegionMap = Map.Make (Region)
     |> brackets) ;;
 
 
+  let pp_region_string (r: region) (s: string) =
+    PP.(newline + !^ "-" ++ double_quotes (Region.pp r) ++ colon ++
+    (s  |> words |> double_quotes)) ;;
+
+
+  (** Format a map of region to string properties (pre-printed) *)
+  let pp_region_string_map (field: string) (smap: string region_map): PP.doc =
+    PP.(
+      if RegionMap.is_empty smap then empty
+      else newline + !^ field + colon + (
+        RegionMap.bindings smap
+        |> List.map @@ uncurry pp_region_string
+        |> concat
+    ))
+  ;;
+
+  let type_to_string t =
+    t |> Cil.d_type () |> Pretty.sprint ~width:800 ;;
+
+
   (** Print a single output line *)
-  let pp_step (rt: typ region_map) (step: step) (colors: config): PP.doc =
+  let pp_step (rt: Cil.varinfo region_map) (step: step) (colors: config): PP.doc =
     let regions = step.effs.may
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
       |> List.map fst in
     let type_names = regions
       |> List.filter_map @@ flip RegionMap.find_opt rt
-      |> List.map @@ Cil.d_type ()
+      |> List.map (fun (v: Cil.varinfo) -> type_to_string v.vtype)
       |> List.unique
-      |> List.map @@ Pretty.sprint ~width:800
-      |> List.map PP.(double_quotes % words) in
-    let pp_region_type (r: region) t =
-      PP.(newline + !^ "-" ++ double_quotes (Region.pp r) ++ colon ++
-      (t |> Cil.d_type () |> Pretty.sprint ~width:800 |> words |> double_quotes))
-    in
-    PP.(
+      |> List.map PP.(double_quotes % words)
+    in PP.(
       newline + words "- line:" ++ int step.sloc.line + newline +
       indent (
         words "source: |-" + newline +
         indent (PathTree.pp_step step) +
-        (if RegionMap.is_empty colors then empty
-        else newline + !^ "lock_colors:" + (
-          colors
-          |> RegionMap.bindings
-          |> List.sort (fun a b -> Region.compare (fst a) (fst b))
-          |> List.map (uncurry pp_colors)
-          |> concat
-        )) +
-        (if RegionMap.is_empty colors then empty
-        else newline + !^ "lock_types:" + (
-          colors
-          |> RegionMap.keys
-          (* TODO: will we see a crashes here ? *)
-          |> Enum.map (fun r -> r, RegionMap.find r rt)
-          |> Enum.map @@ uncurry pp_region_type
-          |> List.of_enum
-          |> concat
-        )) +
+        pp_region_string_map "lock_colors"
+          (RegionMap.mapi (fun _ c -> pp_colors c) colors) +
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
         newline + words "effects_names:" ++ pp_effects step.effs.may +
         newline + words "regions:" ++ pp_regions regions +
@@ -218,15 +206,47 @@ module RegionMap = Map.Make (Region)
       Pervasives.compare s1.sloc.line s2.sloc.line ;;
 
 
+  (** Format the file info and the prefix *)
+  let pp_prefix (file: string) (func: string)
+    (rm: Cil.varinfo region_map) (regions: region list): PP.doc =
+    let region_names = regions
+      |> List.map (fun r -> r, (RegionMap.find r rm).vname)
+      |> List.enum
+      |> RegionMap.of_enum in
+    let region_types = regions
+      |> List.map (fun r -> r, type_to_string (RegionMap.find r rm).vtype)
+      |> List.enum
+      |> RegionMap.of_enum
+    in PP.(
+      words "- func:" ++ !^ func + newline +
+      indent (
+        !^ "file:" ++ double_quotes (!^ file) +
+        pp_region_string_map "lock_names" region_names +
+        pp_region_string_map "lock_types" region_types +
+        newline + !^ "lines:"
+    )) ;;
+
+
+  (** Enumerate all regions in a step map, so presumably all monitored regions
+      seen in a function *)
+  let regions_of_stepmap (m: config StepMap.t): region list = m
+    |> StepMap.values
+    |> Enum.map RegionMap.keys
+    |> Enum.map Regions.of_enum
+    |> Enum.reduce Regions.union
+    |> Regions.to_list ;;
+
+
   (** Print all lines in the provided map *)
-  let pp_steps (file: string) (func: string) (rt: typ region_map) (colors: config StepMap.t): PP.doc =
-    PP.(colors
+  let pp_steps (file: string) (func: string) (rm: Cil.varinfo region_map) (colors: config StepMap.t): PP.doc =
+    let regions = regions_of_stepmap colors
+    in PP.(colors
       |> StepMap.bindings
       |> List.stable_sort cmp_step_config
-      |> List.map @@ uncurry @@ pp_step rt
+      |> List.map @@ uncurry @@ pp_step rm
       |> concat
       |> indent
-      |> append @@ pp_prefix file func
+      |> append @@ pp_prefix file func rm regions
       |> flip append @@ newline
     ) ;;
 
@@ -237,12 +257,9 @@ module RegionMap = Map.Make (Region)
       (colorings, configs) with the same domain. *)
   let make_total (coloring: config StepMap.t): config StepMap.t =
     let initials = coloring
-      |> StepMap.values
-      |> Enum.map RegionMap.keys
-      |> Enum.map Regions.of_enum
-      |> Enum.reduce Regions.union
-      |> Regions.enum
-      |> Enum.map (fun r -> r, Set.singleton Monitor.initial_state)
+      |> regions_of_stepmap
+      |> List.map (fun r -> r, Set.singleton Monitor.initial_state)
+      |> List.enum
       |> RegionMap.of_enum
     in StepMap.map (RegionMap.union (fun _ _ r -> Some r) initials) coloring ;;
 
@@ -339,7 +356,7 @@ module RegionMap = Map.Make (Region)
       |> Seq.map (fun e -> e, AFun.regions_of func e) in
     let rtmap = Seq.append local global
       |> Seq.map (fun vrr -> fst vrr, snd vrr |> Regions.to_seq)
-      |> Seq.flat_map (uncurry @@ fun (v: Cil.varinfo) -> Seq.map (Tuple2.make v.vtype))
+      |> Seq.flat_map (uncurry @@ fun (v: Cil.varinfo) -> Seq.map (Tuple2.make v))
       |> Seq.map Tuple2.swap
       |> RegionMap.of_seq in
     let initial = {
