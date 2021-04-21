@@ -188,7 +188,7 @@ module RegionMap = Map.Make (Region)
         words "source: |-" + newline +
         indent (PathTree.pp_step step) +
         (if RegionMap.is_empty colors then empty
-        else newline + !^ "lock-colors:" + (
+        else newline + !^ "lock_colors:" + (
           colors
           |> RegionMap.bindings
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))
@@ -196,7 +196,7 @@ module RegionMap = Map.Make (Region)
           |> concat
         )) +
         (if RegionMap.is_empty colors then empty
-        else newline + !^ "lock-types:" + (
+        else newline + !^ "lock_types:" + (
           colors
           |> RegionMap.keys
           (* TODO: will we see a crashes here ? *)
