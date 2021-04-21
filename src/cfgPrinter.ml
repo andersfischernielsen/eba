@@ -176,8 +176,11 @@ module RegionMap = Map.Make (Region)
       |> List.filter_map @@ flip RegionMap.find_opt rt
       |> List.map @@ Cil.d_type ()
       |> List.unique
-      |> List.map @@ Pretty.sprint ~width:80
-      |> List.map PP.(double_quotes % words)
+      |> List.map @@ Pretty.sprint ~width:800
+      |> List.map PP.(double_quotes % words) in
+    let pp_region_type (r: region) t =
+      PP.(newline + !^ "-" ++ double_quotes (Region.pp r) ++ colon ++
+      (t |> Cil.d_type () |> Pretty.sprint ~width:800 |> words |> double_quotes))
     in
     PP.(
       newline + words "- line:" ++ int step.sloc.line + newline +
@@ -185,11 +188,21 @@ module RegionMap = Map.Make (Region)
         words "source: |-" + newline +
         indent (PathTree.pp_step step) +
         (if RegionMap.is_empty colors then empty
-        else newline + !^ "colors:" + (
+        else newline + !^ "lock-colors:" + (
           colors
           |> RegionMap.bindings
           |> List.sort (fun a b -> Region.compare (fst a) (fst b))
           |> List.map (uncurry pp_colors)
+          |> concat
+        )) +
+        (if RegionMap.is_empty colors then empty
+        else newline + !^ "lock-types:" + (
+          colors
+          |> RegionMap.keys
+          (* TODO: will we see a crashes here ? *)
+          |> Enum.map (fun r -> r, RegionMap.find r rt)
+          |> Enum.map @@ uncurry pp_region_type
+          |> List.of_enum
           |> concat
         )) +
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
