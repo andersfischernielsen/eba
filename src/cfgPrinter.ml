@@ -102,14 +102,13 @@ module RegionMap = Map.Make (Region)
 
 
 
-  let pp_colors (colors: color set): string =
+  let pp_colors (colors: color set): PP.doc =
     PP.(colors
       |> Set.to_list
       |> List.sort Pervasives.compare
-      |> List.map @@ words % Monitor.string_of_state
+      |> List.map @@ double_quotes % words % Monitor.string_of_state
       |> comma_sep
       |> brackets
-      |> to_string
     ) ;;
 
 
@@ -124,24 +123,25 @@ module RegionMap = Map.Make (Region)
     |> brackets ) ;;
 
 
-  let pp_effect_name = function
-    | Effects.Mem(k, _) -> (Effects.pp_kind k)
-    | Effects.Noret     -> PP.(!^ "noret")
-    | Effects.IrqsOn    -> PP.(!^ "irqson")
-    | Effects.IrqsOff   -> PP.(!^ "irqsoff")
-    | Effects.BhsOn     -> PP.(!^ "bhson")
-    | Effects.BhsOff    -> PP.(!^ "bhsoff")
-    | Effects.Sleep     -> PP.(!^ "sleep")
-    | _________________ -> PP.empty ;;
+  let effect_name = function
+    | Effects.Mem (k, _)-> Effects.string_of_kind k
+    | Effects.Noret     -> "noret"
+    | Effects.IrqsOn    -> "irqson"
+    | Effects.IrqsOff   -> "irqsoff"
+    | Effects.BhsOn     -> "bhson"
+    | Effects.BhsOff    -> "bhsoff"
+    | Effects.Sleep     -> "sleep"
+    | _________________ -> "" ;;
 
 
   (** Format the effects of the step/line *)
   let pp_effects (effects: Effects.EffectSet.t): PP.doc =
     PP.(effects
     |> Effects.EffectSet.to_list
+    |> List.map effect_name
+    |> List.filter (fun d -> d != "")
     |> List.unique
-    |> List.map pp_effect_name
-    |> List.filter (fun d -> d != empty)
+    |> List.map @@ double_quotes % words
     |> comma_sep
     |> brackets ) ;;
 
@@ -154,25 +154,24 @@ module RegionMap = Map.Make (Region)
     |> comma_sep
     |> brackets) ;;
 
-
-  let pp_region_string (r: region) (s: string) =
-    PP.(newline + !^ "-" ++ double_quotes (Region.pp r) ++ colon ++
-    (s  |> words |> double_quotes)) ;;
-
+  let pp_region_doc (r: region) (s: PP.doc): PP.doc =
+    PP.(newline + !^ "-" ++ double_quotes (Region.pp r) ++ colon ++ s) ;;
 
   (** Format a map of region to string properties (pre-printed) *)
-  let pp_region_string_map (field: string) (smap: string region_map): PP.doc =
+  let pp_region_doc_map (field: string) (smap: PP.doc region_map): PP.doc =
     PP.(
       if RegionMap.is_empty smap then empty
       else newline + !^ field + colon + (
         RegionMap.bindings smap
-        |> List.map @@ uncurry pp_region_string
+        |> List.map @@ uncurry pp_region_doc
         |> concat
     ))
   ;;
 
-  let type_to_string t =
+
+  let type_to_string t: string =
     t |> Cil.d_type () |> Pretty.sprint ~width:800 ;;
+
 
 
   (** Print a single output line *)
@@ -181,22 +180,29 @@ module RegionMap = Map.Make (Region)
       |> Effects.EffectSet.to_list
       |> List.filter_map get_region
       |> List.map fst in
-    let type_names = regions
-      |> List.filter_map @@ flip RegionMap.find_opt rt
-      |> List.map (fun (v: Cil.varinfo) -> type_to_string v.vtype)
+    let varinfos = List.filter_map (flip RegionMap.find_opt rt) regions in
+    let type_names = varinfos
+      |> List.map (fun (v: Cil.varinfo) -> v.vtype)
+      |> List.map type_to_string
       |> List.unique
-      |> List.map PP.(double_quotes % words)
+      |> List.map @@ PP.double_quotes % PP.words
+      |> PP.comma_sep |> PP.brackets in
+    let var_names = varinfos
+      |> List.map (fun (v: Cil.varinfo) -> v.vname)
+      |> List.unique
+      |> List.map @@ PP.double_quotes % PP.words
+      |> PP.comma_sep |> PP.brackets
     in PP.(
       newline + words "- line:" ++ int step.sloc.line + newline +
       indent (
         words "source: |-" + newline +
         indent (PathTree.pp_step step) +
-        pp_region_string_map "lock_colors"
-          (RegionMap.mapi (fun _ c -> pp_colors c) colors) +
+        pp_region_doc_map "lock_colors" (RegionMap.mapi (fun _ -> pp_colors) colors) +
         newline + words "effects:" ++ pp_effects_regions step.effs.may +
         newline + words "effects_names:" ++ pp_effects step.effs.may +
-        newline + words "regions:" ++ pp_regions regions +
-        newline + words "types:" ++ PP.(type_names |> comma_sep |> brackets)
+        newline + words "effects_vars:" ++ var_names +
+        newline + words "effects_regions:" ++ pp_regions regions +
+        newline + words "types:" ++ type_names
       )
     ) ;;
 
@@ -210,19 +216,21 @@ module RegionMap = Map.Make (Region)
   let pp_prefix (file: string) (func: string)
     (rm: Cil.varinfo region_map) (regions: region list): PP.doc =
     let region_names = regions
-      |> List.map (fun r -> r, (RegionMap.find r rm).vname)
+      |> List.map (fun r ->
+          r, PP.double_quotes @@ PP.words @@ (RegionMap.find r rm).vname)
       |> List.enum
       |> RegionMap.of_enum in
     let region_types = regions
-      |> List.map (fun r -> r, type_to_string (RegionMap.find r rm).vtype)
+      |> List.map (fun r ->
+          r, PP.double_quotes @@ PP.words @@ type_to_string (RegionMap.find r rm).vtype)
       |> List.enum
       |> RegionMap.of_enum
     in PP.(
       words "- func:" ++ !^ func + newline +
       indent (
         !^ "file:" ++ double_quotes (!^ file) +
-        pp_region_string_map "lock_names" region_names +
-        pp_region_string_map "lock_types" region_types +
+        pp_region_doc_map "lock_names" region_names +
+        pp_region_doc_map "lock_types" region_types +
         newline + !^ "lines:"
     )) ;;
 

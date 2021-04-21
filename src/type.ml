@@ -1237,6 +1237,8 @@ and Effects : sig
 
 	val zonk : t -> t
 
+        val string_of_kind: mem_kind -> string
+
         val pp_kind: mem_kind -> PP.doc
 
 	val pp_e : e -> PP.doc
